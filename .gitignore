@@ -1,0 +1,22 @@
+# Ignore runtime data and credentials
+panel_data/config.json
+panel_data/sites.json
+panel_data/install.lock
+panel_data/rate_limits.json
+panel_data/deploy_logs.log
+panel_data/tmp/*
+!panel_data/tmp/.gitkeep
+!panel_data/.htaccess
+!panel_data/index.php
+
+# Local tests
+tests/tmp_*
+tests/http_sandbox_*
+tests/cookies.txt
+
+# OS and Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

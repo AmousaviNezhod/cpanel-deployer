@@ -1,0 +1,8 @@
+# Sample site internal .htaccess
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase ./
+
+    # Route /status to api.php
+    RewriteRule ^status/?$ api.php [L,QSA]
+</IfModule>

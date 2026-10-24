@@ -1,0 +1,306 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * Dashboard View
+ *
+ * @var array $sites
+ * @var string $csrfToken
+ * @var string $adminSlug
+ * @var string $maxUpload
+ */
+
+$isHttps = \Panel\Auth::isHttps();
+$protocol = $isHttps ? 'https://' : 'http://';
+$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$baseUrl = $protocol . $host;
+
+ob_start();
+?>
+<header class="header">
+    <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-text">
+            <h1>cPanel Deployer</h1>
+            <span>مدیریت و دیپلوی مستقیم سایت‌ها</span>
+        </div>
+    </div>
+    <div class="header-actions">
+        <span class="url-chip" title="مسیر اختصاصی این پنل">
+            <?= htmlspecialchars($adminSlug, ENT_QUOTES, 'UTF-8') ?>
+        </span>
+        <form method="POST" action="./?action=logout" style="margin: 0;">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+            <button type="submit" class="btn btn-secondary btn-sm" title="خروج از حساب">
+                خروج
+            </button>
+        </form>
+    </div>
+</header>
+
+<main class="container">
+    <!-- Security and Subpath Guidance Banner -->
+    <div class="notice-box">
+        <strong>نکات امنیتی و ساختار مسیردهی در هاست اشتراکی:</strong>
+        <ul class="notice-list">
+            <li>
+                <strong>سطح دسترسی اجرای PHP:</strong>
+                اسکریپت‌های PHP آپلودشده با دسترسی حساب cPanel شما اجرا می‌شوند و روی هاست اشتراکی ایزولاسیون کرنل/داکر وجود ندارد؛ فقط کدهای مطمئن و بازبینی‌شده را آپلود کنید.
+            </li>
+            <li>
+                <strong>آدرس‌دهی زیرمسیرها (Subpaths):</strong>
+                سایت‌های دیپلوی‌شده در زیرمسیرها (مانند <code>/x/</code>) برای لود صحیح استایل‌ها و اسکریپت‌ها باید از مسیرهای نسبی (<code>./assets/...</code> یا <code>assets/...</code>) یا تگ <code>&lt;base href="/x/"&gt;</code> استفاده کنند. استفاده از آدرس‌های مطلق ریشه مانند <code>/assets/...</code> درخواست را به ریشه هاست می‌فرستد.
+            </li>
+        </ul>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <div>
+            <span class="toolbar-title">سایت‌های مستقر</span>
+            <span class="toolbar-count">(<?= count($sites) ?> سایت)</span>
+        </div>
+        <div class="toolbar-actions">
+            <button id="openDeployModal" class="btn btn-primary">
+                <span>+</span> دیپلوی سایت جدید
+            </button>
+        </div>
+    </div>
+
+    <!-- Sites Table or Empty State -->
+    <div class="table-card">
+        <?php if (empty($sites)): ?>
+            <div class="empty-state">
+                <svg class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                <div class="empty-title">هنوز هیچ سایتی دیپلوی نشده است</div>
+                <div class="empty-desc">
+                    می‌توانید یک فایل ZIP شامل یک سایت استاتیک (HTML/CSS/JS) یا یک سایت بدون دیتابیس PHP را آپلود و مستقر کنید.
+                </div>
+                <button onclick="document.getElementById('openDeployModal').click()" class="btn btn-primary">
+                    دیپلوی اولین سایت
+                </button>
+            </div>
+        <?php else: ?>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>نام سایت</th>
+                            <th>مسیر دسترسی</th>
+                            <th>نوع</th>
+                            <th>وضعیت فایل‌ها</th>
+                            <th>آخرین دیپلوی</th>
+                            <th style="text-align: center;">عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($sites as $site): ?>
+                            <?php
+                            $slug = htmlspecialchars($site['slug'], ENT_QUOTES, 'UTF-8');
+                            $name = htmlspecialchars($site['name'], ENT_QUOTES, 'UTF-8');
+                            $siteUrl = rtrim($baseUrl, '/') . '/' . $site['slug'] . '/';
+                            $isPhp = !empty($site['has_php']) || ($site['type'] ?? '') === 'php';
+                            ?>
+                            <tr>
+                                <td>
+                                    <div style="font-weight: 600; color: var(--text-primary);"><?= $name ?></div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); direction: ltr; text-align: right;">
+                                        /<?= $slug ?>/
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="url-chip">
+                                        <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">
+                                            /<?= $slug ?>/
+                                        </a>
+                                        <button class="copy-btn" data-copy="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" title="کپی آدرس کامل">
+                                            کپی
+                                        </button>
+                                    </div>
+                                </td>
+                                <td>
+                                    <?php if ($isPhp): ?>
+                                        <span class="badge badge-php">PHP ⚡</span>
+                                    <?php else: ?>
+                                        <span class="badge badge-static">استاتیک</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if (!empty($site['exists'])): ?>
+                                        <?php if (!empty($site['index_file'])): ?>
+                                            <span class="badge badge-success">فعال</span>
+                                        <?php else: ?>
+                                            <span class="badge badge-warning" title="فایل index.html یا index.php یافت نشد">فاقد Index</span>
+                                        <?php endif; ?>
+                                        <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                            <?= (int)($site['file_count'] ?? 0) ?> فایل (<?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>)
+                                        </div>
+                                    <?php else: ?>
+                                        <span class="badge badge-danger">پوشه ناموجود</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <span style="font-size: 0.8rem; color: var(--text-secondary); direction: ltr; display: inline-block;">
+                                        <?= htmlspecialchars($site['last_deploy_at'] ?? $site['created_at'] ?? '-', ENT_QUOTES, 'UTF-8') ?>
+                                    </span>
+                                </td>
+                                <td>
+                                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+                                        <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت در تب جدید">
+                                            مشاهده
+                                        </a>
+                                        <button class="btn btn-secondary btn-sm" data-action="open-update" data-slug="<?= $slug ?>" data-name="<?= $name ?>" title="به‌روزرسانی با ZIP جدید">
+                                            به‌روزرسانی
+                                        </button>
+                                        <button class="btn btn-danger btn-sm" data-action="open-delete" data-slug="<?= $slug ?>" data-name="<?= $name ?>" title="حذف کامل سایت">
+                                            حذف
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </div>
+</main>
+
+<footer class="footer">
+    cPanel Deployer - استقرار سبک، سریع و امن بدون وابستگی به داکر یا دیتابیس
+</footer>
+
+<!-- Modal: New Site Deployment -->
+<div id="deployModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">دیپلوی سایت جدید</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="deployForm" enctype="multipart/form-data">
+            <div class="modal-body">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                
+                <div class="form-group">
+                    <label class="form-label" for="siteNameInput">نام دلخواه سایت</label>
+                    <input type="text" id="siteNameInput" name="name" class="form-input" placeholder="مثال: فروشگاه تست">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="siteSlugInput"><span class="req">*</span> شناسه مسیر (Slug)</label>
+                    <input type="text" id="siteSlugInput" name="slug" class="form-input" placeholder="مثال: mysite" required pattern="[a-z0-9][a-z0-9_-]*" style="direction: ltr; text-align: left;">
+                    <div class="form-hint">
+                        پیش‌نمایش آدرس نهایی: <code id="slugUrlPreview" style="color: var(--accent);"><?= rtrim($baseUrl, '/') ?>/slug/</code>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label"><span class="req">*</span> فایل ZIP سایت</label>
+                    <div id="deployDropzone" class="dropzone">
+                        <input type="file" id="deployZipInput" name="zip_file" accept=".zip,application/zip" required>
+                        <div class="dropzone-icon">📦</div>
+                        <div class="dropzone-text">فایل ZIP سایت را اینجا رها کنید یا کلیک کنید</div>
+                        <div class="dropzone-sub">پوشه‌های اصلی اضافی داخل ZIP به‌طور خودکار حذف می‌شوند (حداکثر <?= $maxUpload ?>)</div>
+                    </div>
+                    <div id="deployFilename" class="selected-filename"></div>
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span class="progress-status">در حال ارسال فایل...</span>
+                        <span class="progress-percent">0%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">شروع دیپلوی</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Update Existing Site -->
+<div id="updateModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">به‌روزرسانی سایت</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="updateForm" enctype="multipart/form-data">
+            <div class="modal-body">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                <input type="hidden" id="updateSlugInput" name="slug" value="">
+
+                <div style="background: rgba(255,255,255,0.03); padding: 0.85rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 1.25rem;">
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">سایت در حال به‌روزرسانی:</div>
+                    <strong id="updateSiteNameDisplay" style="color: var(--text-primary); font-size: 0.95rem;">-</strong>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label"><span class="req">*</span> فایل ZIP نسخه جدید</label>
+                    <div id="updateDropzone" class="dropzone">
+                        <input type="file" id="updateZipInput" name="zip_file" accept=".zip,application/zip" required>
+                        <div class="dropzone-icon">🔄</div>
+                        <div class="dropzone-text">فایل ZIP جدید را اینجا رها کنید یا کلیک کنید</div>
+                        <div class="dropzone-sub">فایل‌ها ابتدا در پوشه موقت بررسی شده و سپس جایگزین می‌شوند.</div>
+                    </div>
+                    <div id="updateFilename" class="selected-filename"></div>
+                </div>
+
+                <div class="form-hint" style="color: var(--warning);">
+                    نکته: در صورت بروز هرگونه خطا در استخراج، نسخه فعلی سایت بدون تغییر حفظ خواهد شد.
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span class="progress-status">در حال آپلود و جایگزینی...</span>
+                        <span class="progress-percent">0%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">جایگزینی و به‌روزرسانی</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Delete Confirmation -->
+<div id="deleteModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title" style="color: var(--danger);">تأیید حذف سایت</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="deleteForm">
+            <div class="modal-body">
+                <input type="hidden" id="deleteSlugInput" name="slug" value="">
+                <p style="color: var(--text-primary); font-size: 0.95rem; line-height: 1.7;">
+                    آیا از حذف کامل سایت <strong id="deleteTargetName" style="color: #fff;"></strong> در مسیر <code id="deleteTargetPath" style="color: var(--accent);"></code> اطمینان دارید؟
+                </p>
+                <div class="alert alert-danger" style="margin-top: 1rem; margin-bottom: 0;">
+                    <span>⚠</span>
+                    <div>این عملیات تمامی فایل‌ها و محتویات پوشه این سایت را حذف می‌کند و غیرقابل بازگشت است.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-danger">بله، حذف کن</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php
+$content = ob_get_clean();
+$title = 'داشبورد مدیریت';
+require __DIR__ . '/layout.php';
