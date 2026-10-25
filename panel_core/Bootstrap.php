@@ -171,6 +171,8 @@ final class Bootstrap
             'deploy_github' => self::actionDeployGitHub(false),
             'update_github' => self::actionDeployGitHub(true),
             'sync_github' => self::actionSyncGitHub(),
+            'set_primary' => self::actionSetPrimary(),
+            'unset_primary' => self::actionUnsetPrimary(),
             default => self::jsonResponse(['success' => false, 'error' => 'عملیات درخواست شده نامعتبر است.'], 400)
         };
     }
@@ -498,11 +500,70 @@ final class Bootstrap
         }
 
         $siteManager->delete($slug);
+
+        // If this site was set as primary, unset it cleanly
+        if ($slug === (self::$config['primary_slug'] ?? null)) {
+            $siteManager->unsetPrimarySite(self::$config, self::$dataPath);
+        }
+
         self::logAction("حذف سایت '{$slug}'");
 
         self::jsonResponse([
             'success' => true,
             'message' => "سایت '{$slug}' با موفقیت حذف شد."
+        ]);
+    }
+
+    /**
+     * Set a deployed site as the primary / root website (https://domain.com/).
+     */
+    private static function actionSetPrimary(): void
+    {
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
+        $site = $siteManager->get($slug);
+
+        if ($site === null) {
+            self::jsonResponse(['success' => false, 'error' => 'سایت مورد نظر یافت نشد.'], 404);
+            return;
+        }
+
+        $res = $siteManager->setPrimarySite($slug, self::$config, self::$dataPath);
+        if (!$res['success']) {
+            self::jsonResponse(['success' => false, 'error' => $res['error']], 400);
+            return;
+        }
+
+        self::$config['primary_slug'] = $slug;
+        self::logAction("تنظیم سایت '{$slug}' به عنوان سایت اصلی دامنه (Root /)");
+
+        self::jsonResponse([
+            'success' => true,
+            'message' => "سایت '{$site['name']}' با موفقیت به عنوان صفحه اصلی دامنه (Root /) تنظیم شد.",
+            'primary_slug' => $slug
+        ]);
+    }
+
+    /**
+     * Unset primary site (restore default landing page).
+     */
+    private static function actionUnsetPrimary(): void
+    {
+        $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
+        $res = $siteManager->unsetPrimarySite(self::$config, self::$dataPath);
+
+        if (!$res['success']) {
+            self::jsonResponse(['success' => false, 'error' => $res['error']], 400);
+            return;
+        }
+
+        self::$config['primary_slug'] = null;
+        self::logAction("لغو سایت اصلی دامنه و بازگردانی صفحه پیش‌فرض");
+
+        self::jsonResponse([
+            'success' => true,
+            'message' => 'سایت اصلی دامنه لغو شد و صفحه پیش‌فرض سرور فعال گردید.',
+            'primary_slug' => null
         ]);
     }
 
@@ -670,6 +731,7 @@ final class Bootstrap
 
         $csrfToken = Auth::getCsrfToken();
         $adminSlug = self::$config['admin_slug'] ?? 'panel';
+        $primarySlug = $siteManager->getPrimarySite(self::$config);
         $maxUpload = SiteManager::formatBytes((int)(self::$config['max_upload_bytes'] ?? 104857600));
 
         require __DIR__ . '/Views/dashboard.php';

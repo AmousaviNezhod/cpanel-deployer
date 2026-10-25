@@ -128,6 +128,15 @@ ob_start();
                 <span class="badge badge-php" style="padding: 1px 6px; font-size: 0.72rem;"><?= $phpCount ?> PHP</span>
                 <span class="badge badge-static" style="padding: 1px 6px; font-size: 0.72rem;"><?= $staticCount ?> استاتیک</span>
             </div>
+            <?php if (!empty($primarySlug)): ?>
+                <div style="font-size: 0.75rem; color: #10b981; margin-top: 0.4rem; display: flex; align-items: center; gap: 0.3rem;">
+                    <span>🏠</span> <strong>صفحه اصلی دامنه:</strong> /<?= htmlspecialchars($primarySlug) ?>/
+                </div>
+            <?php else: ?>
+                <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 0.4rem;">
+                    صفحه اصلی دامنه: پیش‌فرض
+                </div>
+            <?php endif; ?>
             <div class="bento-progress-bg">
                 <div class="bento-progress-fill" style="width: 100%; background: var(--success);"></div>
             </div>
@@ -281,7 +290,12 @@ ob_start();
                                 ?>
                                 <tr>
                                     <td>
-                                        <div style="font-weight: 600; color: var(--text-primary);"><?= $name ?></div>
+                                        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                                            <div style="font-weight: 600; color: var(--text-primary);"><?= $name ?></div>
+                                            <?php if ($primarySlug === $site['slug']): ?>
+                                                <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.68rem;" title="صفحه اصلی دامنه (/) به این سایت اختصاص یافته است">🏠 ریشه دامنه (/)</span>
+                                            <?php endif; ?>
+                                        </div>
                                         <div style="font-size: 0.75rem; color: var(--text-muted); direction: ltr; text-align: right;">
                                             /<?= $slug ?>/
                                         </div>
@@ -351,6 +365,15 @@ ob_start();
                                             <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت در تب جدید">
                                                 مشاهده
                                             </a>
+                                            <?php if ($primarySlug === $site['slug']): ?>
+                                                <button class="btn btn-secondary btn-sm" data-action="unset-primary" data-slug="<?= $slug ?>" style="color: #f59e0b; border-color: rgba(245, 158, 11, 0.35);" title="لغو اتصال این سایت از صفحه اصلی دامنه">
+                                                    ❌ لغو ریشه
+                                                </button>
+                                            <?php else: ?>
+                                                <button class="btn btn-secondary btn-sm" data-action="set-primary" data-slug="<?= $slug ?>" data-name="<?= $name ?>" style="color: #10b981; border-color: rgba(16, 185, 129, 0.35);" title="تنظیم به عنوان صفحه اصلی دامنه (Root /)">
+                                                    🏠 سایت اصلی
+                                                </button>
+                                            <?php endif; ?>
                                             <?php if (!empty($site['github']['url'])): ?>
                                                 <button class="btn btn-secondary btn-sm" data-action="sync-github" data-slug="<?= $slug ?>" data-name="<?= $name ?>" style="color: #818cf8; border-color: rgba(129, 140, 248, 0.35);" title="دریافت آخرین کامیت از گیت‌هاب و همگام‌سازی سریع">
                                                     🔄 گیت‌هاب

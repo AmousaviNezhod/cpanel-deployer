@@ -12,6 +12,7 @@ $tests = [
     'test_fix_routes.php',
     'test_file_manager.php',
     'test_github_deployer.php',
+    'test_primary_site.php',
     'test_database_and_disk.php',
     'test_http_flow.php',
 ];

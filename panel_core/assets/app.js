@@ -278,6 +278,89 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     /**
+     * Set Primary / Root Website
+     */
+    document.querySelectorAll('[data-action="set-primary"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const slug = btn.getAttribute('data-slug');
+            const name = btn.getAttribute('data-name');
+            if (!confirm(`آیا مایلید سایت "${name}" به عنوان صفحه اصلی دامنه (/) تنظیم شود؟\n\nاز این پس هر کاربری آدرس اصلی سایت را باز کند، مستقیماً این پروژه را مشاهده خواهد کرد.`)) {
+                return;
+            }
+
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = 'در حال تنظیم...';
+
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('slug', slug);
+
+            fetch('./?action=set_primary', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    setTimeout(() => window.location.reload(), 800);
+                } else {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                    showToast(data.error || 'خطا در تنظیم سایت اصلی.', 'error');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                showToast('خطای شبکه.', 'error');
+            });
+        });
+    });
+
+    /**
+     * Unset Primary / Root Website
+     */
+    document.querySelectorAll('[data-action="unset-primary"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!confirm('آیا مایلید این سایت را از صفحه اصلی دامنه لغو کنید و صفحه پیش‌فرض سرور فعال شود؟')) {
+                return;
+            }
+
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = 'در حال لغو...';
+
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+
+            fetch('./?action=unset_primary', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'info');
+                    setTimeout(() => window.location.reload(), 800);
+                } else {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                    showToast(data.error || 'خطا در لغو سایت اصلی.', 'error');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                showToast('خطای شبکه.', 'error');
+            });
+        });
+    });
+
+    /**
      * 1-Click Sync from GitHub
      */
     document.querySelectorAll('[data-action="sync-github"]').forEach(btn => {

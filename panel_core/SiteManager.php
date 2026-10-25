@@ -421,4 +421,168 @@ final class SiteManager
         @chmod($this->dataFile, 0644);
         return $written !== false;
     }
+
+    /**
+     * Get the current primary / root site slug.
+     */
+    public function getPrimarySite(?array $config = null): ?string
+    {
+        if ($config !== null && isset($config['primary_slug'])) {
+            return !empty($config['primary_slug']) ? (string)$config['primary_slug'] : null;
+        }
+        $configFile = $this->dataPath . DIRECTORY_SEPARATOR . 'config.json';
+        if (file_exists($configFile)) {
+            $data = json_decode((string)file_get_contents($configFile), true);
+            if (is_array($data) && !empty($data['primary_slug'])) {
+                return (string)$data['primary_slug'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Designate a service as the Primary / Root website for https://domain.com/.
+     */
+    public function setPrimarySite(string $slug, array &$config, string $dataPath): array
+    {
+        $slug = strtolower(trim($slug));
+        $site = $this->get($slug);
+        if ($site === null) {
+            return ['success' => false, 'error' => 'پروژه مورد نظر یافت نشد.'];
+        }
+
+        $siteDir = $this->publicHtmlPath . DIRECTORY_SEPARATOR . $slug;
+        if (!is_dir($siteDir)) {
+            return ['success' => false, 'error' => "پوشه پروژه '{$slug}' در سرور وجود ندارد."];
+        }
+
+        $oldPrimary = $config['primary_slug'] ?? null;
+        if ($oldPrimary && $oldPrimary !== $slug) {
+            $this->adaptHtmlForPrimary($oldPrimary, false);
+        }
+
+        // 1. Adapt HTML files in $slug for root domain
+        $this->adaptHtmlForPrimary($slug, true);
+
+        // 2. Update config.json
+        $config['primary_slug'] = $slug;
+        $configFile = $dataPath . DIRECTORY_SEPARATOR . 'config.json';
+        file_put_contents($configFile, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
+
+        // 3. Update root .htaccess
+        $this->updateRootHtaccess($slug);
+
+        return ['success' => true, 'primary_slug' => $slug];
+    }
+
+    /**
+     * Unset primary site and restore default landing page.
+     */
+    public function unsetPrimarySite(array &$config, string $dataPath): array
+    {
+        $currentPrimary = $config['primary_slug'] ?? null;
+        if ($currentPrimary) {
+            $this->adaptHtmlForPrimary($currentPrimary, false);
+        }
+
+        $config['primary_slug'] = null;
+        $configFile = $dataPath . DIRECTORY_SEPARATOR . 'config.json';
+        file_put_contents($configFile, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
+
+        $this->updateRootHtaccess(null);
+
+        return ['success' => true, 'primary_slug' => null];
+    }
+
+    /**
+     * Adapt HTML files between root domain mode (<base href="/">) and subpath mode (<base href="/slug/">).
+     */
+    private function adaptHtmlForPrimary(string $slug, bool $isPrimary): void
+    {
+        $dir = $this->publicHtmlPath . DIRECTORY_SEPARATOR . $slug;
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        foreach ($iterator as $item) {
+            if ($item->isFile() && in_array(strtolower($item->getExtension()), ['html', 'htm', 'php', 'phtml'], true)) {
+                $filePath = $item->getPathname();
+                $content = @file_get_contents($filePath);
+                if ($content === false || $content === '') {
+                    continue;
+                }
+
+                $relDir = str_replace('\\', '/', trim(substr($item->getPath(), strlen($dir)), '\\/'));
+
+                if ($isPrimary) {
+                    // Changing to primary (root /): base href should be / or /subdir/
+                    $rootBase = ($relDir === '' || $relDir === '.') ? '/' : '/' . trim($relDir, '/') . '/';
+                    $content = preg_replace(
+                        '#<base\s+href=([\'"])/' . preg_quote($slug, '#') . '/?([^\'"]*)\1>#i',
+                        '<base href=$1' . $rootBase . '$1>',
+                        $content
+                    );
+                } else {
+                    // Reverting back to subpath /slug/: base href should be /slug/ or /slug/subdir/
+                    $subBase = ($relDir === '' || $relDir === '.') ? "/{$slug}/" : "/{$slug}/" . trim($relDir, '/') . '/';
+                    $content = preg_replace(
+                        '#<base\s+href=([\'"])/(?!' . preg_quote($slug, '#') . ')([^/\'"]+)?/?([^\'"]*)\1>#i',
+                        '<base href=$1' . $subBase . '$1>',
+                        $content
+                    );
+                }
+
+                @file_put_contents($filePath, $content, LOCK_EX);
+            }
+        }
+    }
+
+    /**
+     * Update root .htaccess with PRIMARY_SITE_ROUTING block.
+     */
+    public function updateRootHtaccess(?string $primarySlug): bool
+    {
+        $htaccessFile = $this->publicHtmlPath . DIRECTORY_SEPARATOR . '.htaccess';
+        if (!file_exists($htaccessFile)) {
+            return false;
+        }
+
+        $content = (string)file_get_contents($htaccessFile);
+
+        // Strip any existing PRIMARY_SITE_ROUTING block
+        $content = preg_replace(
+            '/# BEGIN PRIMARY_SITE_ROUTING.*# END PRIMARY_SITE_ROUTING\s*/s',
+            '',
+            $content
+        );
+
+        if (!empty($primarySlug)) {
+            $safeSlug = preg_replace('/[^a-z0-9_-]/i', '', $primarySlug);
+            $block = "# BEGIN PRIMARY_SITE_ROUTING\n"
+                   . "<IfModule mod_rewrite.c>\n"
+                   . "    RewriteEngine On\n\n"
+                   . "    # 1. Do not rewrite existing physical files or directories in public_html\n"
+                   . "    RewriteCond %{REQUEST_FILENAME} -f [OR]\n"
+                   . "    RewriteCond %{REQUEST_FILENAME} -d\n"
+                   . "    RewriteRule ^ - [L]\n\n"
+                   . "    # 2. Rewrite requests to primary site folder if the resource exists there\n"
+                   . "    RewriteCond %{DOCUMENT_ROOT}/{$safeSlug}/$1 -f [OR]\n"
+                   . "    RewriteCond %{DOCUMENT_ROOT}/{$safeSlug}/$1 -d\n"
+                   . "    RewriteRule ^(.*)$ {$safeSlug}/$1 [L,QSA]\n\n"
+                   . "    # 3. Fallback for PHP frameworks/routers if primary site has index.php\n"
+                   . "    RewriteCond %{DOCUMENT_ROOT}/{$safeSlug}/index.php -f\n"
+                   . "    RewriteRule ^(.*)$ {$safeSlug}/index.php [L,QSA]\n"
+                   . "</IfModule>\n"
+                   . "# END PRIMARY_SITE_ROUTING\n";
+
+            $content = trim($content) . "\n\n" . $block;
+        }
+
+        return (bool)file_put_contents($htaccessFile, trim($content) . "\n", LOCK_EX);
+    }
 }
