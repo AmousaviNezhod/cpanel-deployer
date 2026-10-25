@@ -549,8 +549,48 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // =========================================================================
-    // Project Actions: Root Domain, GitHub Sync, Delete, Update
+    // Project Actions: Dropdown Menu, Root Domain, GitHub Sync, Delete, Update
     // =========================================================================
+
+    // Action Dropdown Menus in Sites Table
+    document.addEventListener('click', (e) => {
+        const toggleBtn = e.target.closest('.btn-more-toggle');
+        if (toggleBtn) {
+            e.stopPropagation();
+            const parent = toggleBtn.closest('.action-dropdown-wrap');
+            const menu = parent ? parent.querySelector('.action-dropdown-menu') : null;
+            const isOpen = menu && menu.classList.contains('show');
+
+            // Close any other open dropdowns
+            document.querySelectorAll('.action-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+            document.querySelectorAll('.btn-more-toggle.active').forEach(b => b.classList.remove('active'));
+
+            if (!isOpen && menu) {
+                menu.classList.add('show');
+                toggleBtn.classList.add('active');
+            }
+            return;
+        }
+
+        // Close when clicking an item or anywhere outside
+        if (!e.target.closest('.action-dropdown-menu')) {
+            document.querySelectorAll('.action-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+            document.querySelectorAll('.btn-more-toggle.active').forEach(b => b.classList.remove('active'));
+        } else {
+            // Close after clicking an action inside menu
+            setTimeout(() => {
+                document.querySelectorAll('.action-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+                document.querySelectorAll('.btn-more-toggle.active').forEach(b => b.classList.remove('active'));
+            }, 120);
+        }
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.action-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+            document.querySelectorAll('.btn-more-toggle.active').forEach(b => b.classList.remove('active'));
+        }
+    });
 
     // Set Root Domain
     document.querySelectorAll('[data-action="set-primary"]').forEach(btn => {
@@ -835,6 +875,17 @@ document.addEventListener('DOMContentLoaded', () => {
             fmCurrentPath = '';
             closeFmEditor();
             loadFmDirectory(fmActiveSlug, '');
+        });
+    }
+
+    const fmDownloadZipBtn = document.getElementById('fmDownloadZipBtn');
+    if (fmDownloadZipBtn) {
+        fmDownloadZipBtn.addEventListener('click', () => {
+            if (!fmActiveSlug) {
+                showToast('لطفاً ابتدا یک پروژه را انتخاب نمایید.', 'warning');
+                return;
+            }
+            window.location.href = `?action=download_site&slug=${encodeURIComponent(fmActiveSlug)}`;
         });
     }
 

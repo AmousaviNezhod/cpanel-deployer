@@ -585,4 +585,52 @@ final class SiteManager
 
         return (bool)file_put_contents($htaccessFile, trim($content) . "\n", LOCK_EX);
     }
+
+    /**
+     * Package an entire deployed site into a ZIP archive for backup/download.
+     *
+     * @return string|null Absolute path to temporary ZIP file, or null on error.
+     */
+    public function exportSiteZip(string $slug): ?string
+    {
+        $sitePath = $this->publicHtmlPath . DIRECTORY_SEPARATOR . $slug;
+        if (!is_dir($sitePath) || !Security::isPathWithin($sitePath, $this->publicHtmlPath)) {
+            return null;
+        }
+
+        $tmpDir = $this->dataPath . DIRECTORY_SEPARATOR . 'tmp';
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0755, true);
+        }
+
+        $zipFile = $tmpDir . DIRECTORY_SEPARATOR . 'export_' . $slug . '_' . bin2hex(random_bytes(6)) . '.zip';
+        $zip = new \ZipArchive();
+        if ($zip->open($zipFile, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            return null;
+        }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($sitePath, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        $hasFiles = false;
+        foreach ($iterator as $item) {
+            $itemPath = $item->getRealPath();
+            if ($itemPath === false) {
+                continue;
+            }
+            $relPath = ltrim(str_replace('\\', '/', substr($itemPath, strlen($sitePath))), '/');
+            if ($item->isDir()) {
+                $zip->addEmptyDir($relPath);
+            } else {
+                $zip->addFile($itemPath, $relPath);
+                $hasFiles = true;
+            }
+        }
+
+        $zip->close();
+
+        return ($hasFiles && file_exists($zipFile)) ? $zipFile : null;
+    }
 }

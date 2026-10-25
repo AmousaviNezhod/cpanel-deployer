@@ -248,11 +248,11 @@ ob_start();
                     <thead>
                         <tr>
                             <th style="width: 28%;">پروژه و شناسه مسیر</th>
-                            <th style="width: 18%;">آدرس مستقیم</th>
-                            <th style="width: 14%;">محیط و وضعیت</th>
-                            <th style="width: 14%;">حجم اشغال‌شده</th>
-                            <th style="width: 14%;">آخرین دیپلوی</th>
-                            <th style="width: 12%; text-align: left;">عملیات</th>
+                            <th style="width: 20%;">آدرس مستقیم</th>
+                            <th style="width: 12%;">محیط و وضعیت</th>
+                            <th style="width: 12%;">حجم اشغال‌شده</th>
+                            <th style="width: 12%;">آخرین دیپلوی</th>
+                            <th style="width: 16%; text-align: left;">عملیات</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -269,32 +269,34 @@ ob_start();
                             ?>
                             <tr data-site-row data-slug="<?= $slug ?>" data-name="<?= strtolower($name) ?>" data-type="<?= $filterType ?>">
                                 <td>
-                                    <div class="project-title">
-                                        <span><?= $name ?></span>
-                                        <?php if ($isRoot): ?>
-                                            <span class="status-pill status-pill-warning" title="اختصاص یافته به عنوان صفحه اصلی دامنه">
-                                                🏠 ریشه دامنه (/)
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="project-slug">/<?= $slug ?>/</div>
-                                    <?php if ($isGh): ?>
-                                        <div style="margin-top: 0.3rem;">
-                                            <a href="<?= htmlspecialchars($site['github']['url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" style="font-size: 0.72rem; color: #818cf8; text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem;" title="مشاهده مخزن گیت‌هاب">
-                                                <span>🐙</span>
-                                                <span style="direction: ltr; font-family: var(--font-mono);"><?= htmlspecialchars($site['github']['owner'] . '/' . $site['github']['repo'], ENT_QUOTES, 'UTF-8') ?></span>
-                                                <span class="status-pill status-pill-muted" style="padding: 0 4px; font-size: 0.65rem;"><?= htmlspecialchars($site['github']['branch'] ?? 'main', ENT_QUOTES, 'UTF-8') ?></span>
-                                            </a>
+                                    <div class="project-identity">
+                                        <div class="project-title">
+                                            <span class="project-name"><?= $name ?></span>
+                                            <?php if ($isRoot): ?>
+                                                <span class="status-pill status-pill-warning" title="اختصاص یافته به عنوان صفحه اصلی دامنه">
+                                                    🏠 ریشه دامنه (/)
+                                                </span>
+                                            <?php endif; ?>
                                         </div>
-                                    <?php endif; ?>
+                                        <div class="project-meta-row">
+                                            <span class="project-slug">/<?= $slug ?>/</span>
+                                            <?php if ($isGh): ?>
+                                                <a href="<?= htmlspecialchars($site['github']['url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="gh-repo-link" title="مشاهده مخزن گیت‌هاب">
+                                                    <span>🐙</span>
+                                                    <span style="direction: ltr; font-family: var(--font-mono);"><?= htmlspecialchars($site['github']['owner'] . '/' . $site['github']['repo'], ENT_QUOTES, 'UTF-8') ?></span>
+                                                    <span class="status-pill status-pill-muted" style="padding: 0 4px; font-size: 0.65rem;"><?= htmlspecialchars($site['github']['branch'] ?? 'main', ENT_QUOTES, 'UTF-8') ?></span>
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
                                 </td>
                                 <td>
-                                    <div style="display: flex; align-items: center; gap: 0.4rem; direction: ltr;">
-                                        <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" style="font-family: var(--font-mono); font-size: 0.82rem;">
+                                    <div class="site-url-box">
+                                        <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="site-direct-link" title="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>">
                                             /<?= $slug ?>/
                                         </a>
-                                        <button class="btn btn-ghost btn-sm" data-copy="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" title="کپی آدرس کامل" style="padding: 0.15rem 0.35rem; font-size: 0.72rem;">
-                                            کپی
+                                        <button type="button" class="btn btn-ghost btn-xs btn-copy-icon" data-copy="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" title="کپی آدرس کامل">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                                         </button>
                                     </div>
                                 </td>
@@ -328,37 +330,56 @@ ob_start();
                                 </td>
                                 <td>
                                     <div class="actions-cell">
-                                        <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت">
+                                        <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت در تب جدید">
                                             مشاهده ↗
                                         </a>
 
-                                        <?php if ($isRoot): ?>
-                                            <button class="btn btn-secondary btn-sm" data-action="unset-primary" data-slug="<?= $slug ?>" style="color: #f59e0b; border-color: rgba(245, 158, 11, 0.35);" title="لغو اتصال این سایت از ریشه دامنه">
-                                                ❌ لغو ریشه
-                                            </button>
-                                        <?php else: ?>
-                                            <button class="btn btn-secondary btn-sm" data-action="set-primary" data-slug="<?= $slug ?>" data-name="<?= $name ?>" style="color: #10b981; border-color: rgba(16, 185, 129, 0.35);" title="تنظیم به عنوان صفحه اصلی دامنه (Root /)">
-                                                🏠 سایت اصلی
-                                            </button>
-                                        <?php endif; ?>
+                                        <a href="?action=download_site&slug=<?= $slug ?>" class="btn btn-download-zip btn-sm" title="دانلود آخرین سورس مستقر شده پروژه به صورت فایل ZIP">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                            <span>دانلود ZIP</span>
+                                        </a>
 
-                                        <?php if ($isGh): ?>
-                                            <button class="btn btn-secondary btn-sm" data-action="sync-github" data-slug="<?= $slug ?>" data-name="<?= $name ?>" style="color: #818cf8; border-color: rgba(129, 140, 248, 0.35);" title="دریافت آخرین کامیت از گیت‌هاب و همگام‌سازی">
-                                                🔄 گیت‌هاب
-                                            </button>
-                                        <?php endif; ?>
-
-                                        <button class="btn btn-secondary btn-sm" data-action="open-files" data-slug="<?= $slug ?>" title="مدیریت فایل‌ها و ویرایش کدهای این پروژه">
+                                        <button class="btn btn-secondary btn-sm" data-action="open-files" data-slug="<?= $slug ?>" title="مدیریت و ویرایش فایل‌های این پروژه">
                                             📁 فایل‌ها
                                         </button>
 
-                                        <button class="btn btn-secondary btn-sm" data-action="open-update" data-slug="<?= $slug ?>" data-name="<?= $name ?>" data-fix-routes="<?= !empty($site['fix_routes']) ? '1' : '0' ?>" title="به‌روزرسانی پروژه با ZIP جدید">
-                                            به‌روزرسانی
-                                        </button>
-
-                                        <button class="btn btn-ghost btn-sm" data-action="open-delete" data-slug="<?= $slug ?>" data-name="<?= $name ?>" style="color: var(--danger);" title="حذف کامل پروژه">
-                                            حذف
-                                        </button>
+                                        <div class="action-dropdown-wrap">
+                                            <button type="button" class="btn btn-ghost btn-sm btn-more-toggle" title="عملیات بیشتر">
+                                                •••
+                                            </button>
+                                            <div class="action-dropdown-menu">
+                                                <a href="?action=download_site&slug=<?= $slug ?>" class="action-dropdown-item">
+                                                    <span class="dropdown-item-icon">📦</span>
+                                                    <span>دانلود آخرین پکیج دیپلوی (ZIP)</span>
+                                                </a>
+                                                <button type="button" class="action-dropdown-item" data-action="open-update" data-slug="<?= $slug ?>" data-name="<?= $name ?>" data-fix-routes="<?= !empty($site['fix_routes']) ? '1' : '0' ?>">
+                                                    <span class="dropdown-item-icon">🔄</span>
+                                                    <span>به‌روزرسانی با فایل ZIP جدید</span>
+                                                </button>
+                                                <?php if ($isGh): ?>
+                                                    <button type="button" class="action-dropdown-item" data-action="sync-github" data-slug="<?= $slug ?>" data-name="<?= $name ?>">
+                                                        <span class="dropdown-item-icon">🐙</span>
+                                                        <span>همگام‌سازی آخرین کامیت گیت‌هاب</span>
+                                                    </button>
+                                                <?php endif; ?>
+                                                <?php if ($isRoot): ?>
+                                                    <button type="button" class="action-dropdown-item" data-action="unset-primary" data-slug="<?= $slug ?>">
+                                                        <span class="dropdown-item-icon">❌</span>
+                                                        <span>لغو اختصاص به ریشه دامنه</span>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <button type="button" class="action-dropdown-item" data-action="set-primary" data-slug="<?= $slug ?>" data-name="<?= $name ?>">
+                                                        <span class="dropdown-item-icon">🏠</span>
+                                                        <span>تنظیم به عنوان صفحه اصلی دامنه (Root /)</span>
+                                                    </button>
+                                                <?php endif; ?>
+                                                <div class="action-dropdown-divider"></div>
+                                                <button type="button" class="action-dropdown-item text-danger" data-action="open-delete" data-slug="<?= $slug ?>" data-name="<?= $name ?>">
+                                                    <span class="dropdown-item-icon">🗑️</span>
+                                                    <span>حذف کامل پروژه از هاست</span>
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
@@ -391,6 +412,10 @@ ob_start();
                 </div>
 
                 <div class="fm-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" id="fmDownloadZipBtn" title="دانلود کل پروژه انتخابی به صورت فایل ZIP">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        <span>دانلود ZIP پروژه</span>
+                    </button>
                     <button type="button" class="btn btn-secondary btn-sm" id="fmRefreshBtn" title="تازه‌سازی لیست فایل‌ها">🔄 رفرش</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="fmNewFileBtn">📄 فایل جدید</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="fmNewDirBtn">📁 پوشه جدید</button>

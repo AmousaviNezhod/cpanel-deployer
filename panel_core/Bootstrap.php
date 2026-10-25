@@ -191,6 +191,7 @@ final class Bootstrap
             'sites' => self::actionListSites(),
             'disk_stats' => self::actionDiskStats(),
             'logs' => self::actionGetLogs(),
+            'download_site' => self::actionDownloadSite(),
             'db_list' => self::actionDbList(),
             'db_tables' => self::actionDbTables(),
             'fm_list' => self::actionFmList(),
@@ -783,6 +784,49 @@ final class Bootstrap
             }
         }
         return $parsed;
+    }
+
+    /**
+     * Download deployed project as a ZIP archive.
+     */
+    private static function actionDownloadSite(): void
+    {
+        $slug = strtolower(trim((string)($_GET['slug'] ?? '')));
+        $adminSlug = self::$config['admin_slug'] ?? null;
+        $valSlug = Security::validateSlug($slug, $adminSlug);
+        if (!$valSlug['valid']) {
+            http_response_code(400);
+            echo 'شناسه سایت نامعتبر است.';
+            return;
+        }
+
+        $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
+        $zipPath = $siteManager->exportSiteZip($slug);
+        if ($zipPath === null || !file_exists($zipPath)) {
+            http_response_code(404);
+            echo 'فایل‌های پروژه برای دانلود یافت نشد یا پروژه خالی است.';
+            return;
+        }
+
+        $filename = $slug . '-latest-' . date('Ymd-His') . '.zip';
+        $size = filesize($zipPath);
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        header('Content-Description: File Transfer');
+        header('Content-Type: application/zip');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Transfer-Encoding: binary');
+        header('Expires: 0');
+        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+        header('Pragma: public');
+        header('Content-Length: ' . $size);
+
+        readfile($zipPath);
+        @unlink($zipPath);
+        exit;
     }
 
     /**
