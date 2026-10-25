@@ -1,0 +1,43 @@
+name: Deploy to cPanel Host
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Sync cPanel Deployer to Live Host
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Deploy via FTP to cPanel
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.CPANEL_FTP_SERVER }}
+          username: ${{ secrets.CPANEL_FTP_USERNAME }}
+          password: ${{ secrets.CPANEL_FTP_PASSWORD }}
+          protocol: ftp
+          port: ${{ secrets.CPANEL_FTP_PORT || 21 }}
+          server-dir: public_html/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/tests/**
+            **/samples/**
+            README.md
+            cpanel-deployer.zip
+            panel_data/config.json
+            panel_data/sites.json
+            panel_data/install.lock
+            panel_data/rate_limits.json
+            panel_data/deploy_logs.log
+            panel_data/tmp/**
+            panel_data/databases/**
