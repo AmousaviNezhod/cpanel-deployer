@@ -190,6 +190,7 @@ final class Bootstrap
         match ($action) {
             'sites' => self::actionListSites(),
             'disk_stats' => self::actionDiskStats(),
+            'logs' => self::actionGetLogs(),
             'db_list' => self::actionDbList(),
             'db_tables' => self::actionDbTables(),
             'fm_list' => self::actionFmList(),
@@ -733,8 +734,55 @@ final class Bootstrap
         $adminSlug = self::$config['admin_slug'] ?? 'panel';
         $primarySlug = $siteManager->getPrimarySite(self::$config);
         $maxUpload = SiteManager::formatBytes((int)(self::$config['max_upload_bytes'] ?? 104857600));
+        $recentLogs = self::getRecentLogs(30);
 
         require __DIR__ . '/Views/dashboard.php';
+    }
+
+    /**
+     * Get Recent Deployment & Audit Logs.
+     */
+    private static function actionGetLogs(): void
+    {
+        $limit = max(5, min(100, (int)($_GET['limit'] ?? 25)));
+        $logs = self::getRecentLogs($limit);
+        self::jsonResponse(['success' => true, 'logs' => $logs]);
+    }
+
+    /**
+     * Read and parse recent log entries.
+     *
+     * @return array<int, array{time: string, ip: string, message: string}>
+     */
+    public static function getRecentLogs(int $limit = 25): array
+    {
+        $logFile = self::$dataPath . DIRECTORY_SEPARATOR . 'deploy_logs.log';
+        if (!file_exists($logFile)) {
+            return [];
+        }
+        $lines = @file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (!$lines || !is_array($lines)) {
+            return [];
+        }
+        $lines = array_reverse($lines);
+        $sliced = array_slice($lines, 0, $limit);
+        $parsed = [];
+        foreach ($sliced as $line) {
+            if (preg_match('/^\[(.*?)\]\s+\[(.*?)\]\s+(.*)$/', $line, $m)) {
+                $parsed[] = [
+                    'time' => $m[1],
+                    'ip' => $m[2],
+                    'message' => $m[3]
+                ];
+            } else {
+                $parsed[] = [
+                    'time' => '',
+                    'ip' => '',
+                    'message' => $line
+                ];
+            }
+        }
+        return $parsed;
     }
 
     /**
