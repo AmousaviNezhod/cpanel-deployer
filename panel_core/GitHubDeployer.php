@@ -159,7 +159,8 @@ class GitHubDeployer
             'type' => 'application/zip',
             'tmp_name' => $zipPath,
             'error' => UPLOAD_ERR_OK,
-            'size' => $download['size']
+            'size' => $download['size'],
+            'is_local' => true
         ];
 
         try {

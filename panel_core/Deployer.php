@@ -187,8 +187,12 @@ final class Deployer
         }
 
         $tmpPath = $file['tmp_name'] ?? '';
-        if (php_sapi_name() !== 'cli' && !is_uploaded_file($tmpPath)) {
+        $isLocal = !empty($file['is_local']) || (php_sapi_name() === 'cli');
+        if (!$isLocal && !is_uploaded_file($tmpPath)) {
             return ['valid' => false, 'error' => 'فایل ارسالی معتبر نیست.'];
+        }
+        if (!file_exists($tmpPath) || !is_readable($tmpPath)) {
+            return ['valid' => false, 'error' => 'امکان خواندن فایل ارسال شده وجود ندارد.'];
         }
 
         // Verify ZIP magic bytes (PK\x03\x04 or PK\x05\x06)
