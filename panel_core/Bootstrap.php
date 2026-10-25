@@ -8,6 +8,7 @@ require_once __DIR__ . '/Auth.php';
 require_once __DIR__ . '/SiteManager.php';
 require_once __DIR__ . '/Deployer.php';
 require_once __DIR__ . '/DatabaseManager.php';
+require_once __DIR__ . '/FileManager.php';
 
 final class Bootstrap
 {
@@ -158,6 +159,14 @@ final class Bootstrap
             'db_delete_mysql' => self::actionDbDeleteMysql(),
             'db_query' => self::actionDbQuery(),
             'update_quota' => self::actionUpdateQuota(),
+            'fm_list' => self::actionFmList(),
+            'fm_read' => self::actionFmRead(),
+            'fm_save' => self::actionFmSave(),
+            'fm_create_file' => self::actionFmCreateFile(),
+            'fm_create_dir' => self::actionFmCreateDir(),
+            'fm_rename' => self::actionFmRename(),
+            'fm_delete' => self::actionFmDelete(),
+            'fm_upload' => self::actionFmUpload(),
             default => self::jsonResponse(['success' => false, 'error' => 'عملیات درخواست شده نامعتبر است.'], 400)
         };
     }
@@ -177,6 +186,8 @@ final class Bootstrap
             'disk_stats' => self::actionDiskStats(),
             'db_list' => self::actionDbList(),
             'db_tables' => self::actionDbTables(),
+            'fm_list' => self::actionFmList(),
+            'fm_read' => self::actionFmRead(),
             'logout' => self::actionLogout(),
             default => self::renderDashboardView()
         };
@@ -511,6 +522,173 @@ final class Bootstrap
         $maxUpload = SiteManager::formatBytes((int)(self::$config['max_upload_bytes'] ?? 104857600));
 
         require __DIR__ . '/Views/dashboard.php';
+    }
+
+    /**
+     * File Manager: List Directory.
+     */
+    private static function actionFmList(): void
+    {
+        $slug = strtolower(trim((string)($_REQUEST['slug'] ?? '')));
+        $path = (string)($_REQUEST['path'] ?? '');
+
+        $fm = new FileManager(self::$publicHtmlPath, self::$dataPath);
+        $result = $fm->listDirectory($slug, $path);
+
+        if (!$result['success']) {
+            self::jsonResponse($result, 400);
+            return;
+        }
+
+        self::jsonResponse($result);
+    }
+
+    /**
+     * File Manager: Read File Content.
+     */
+    private static function actionFmRead(): void
+    {
+        $slug = strtolower(trim((string)($_REQUEST['slug'] ?? '')));
+        $file = (string)($_REQUEST['file'] ?? '');
+
+        $fm = new FileManager(self::$publicHtmlPath, self::$dataPath);
+        $result = $fm->readFile($slug, $file);
+
+        if (!$result['success']) {
+            self::jsonResponse($result, 400);
+            return;
+        }
+
+        self::jsonResponse($result);
+    }
+
+    /**
+     * File Manager: Save File Content.
+     */
+    private static function actionFmSave(): void
+    {
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $file = (string)($_POST['file'] ?? '');
+        $content = (string)($_POST['content'] ?? '');
+
+        $fm = new FileManager(self::$publicHtmlPath, self::$dataPath);
+        $result = $fm->saveFile($slug, $file, $content);
+
+        if (!$result['success']) {
+            self::jsonResponse($result, 400);
+            return;
+        }
+
+        self::logAction("ویرایش فایل '{$file}' در پروژه '{$slug}'");
+        self::jsonResponse($result);
+    }
+
+    /**
+     * File Manager: Create Empty File.
+     */
+    private static function actionFmCreateFile(): void
+    {
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $path = (string)($_POST['path'] ?? '');
+        $filename = (string)($_POST['filename'] ?? '');
+
+        $fm = new FileManager(self::$publicHtmlPath, self::$dataPath);
+        $result = $fm->createFile($slug, $path, $filename);
+
+        if (!$result['success']) {
+            self::jsonResponse($result, 400);
+            return;
+        }
+
+        self::logAction("ایجاد فایل جدید '{$filename}' در '{$slug}'");
+        self::jsonResponse($result);
+    }
+
+    /**
+     * File Manager: Create Directory.
+     */
+    private static function actionFmCreateDir(): void
+    {
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $path = (string)($_POST['path'] ?? '');
+        $dirname = (string)($_POST['dirname'] ?? '');
+
+        $fm = new FileManager(self::$publicHtmlPath, self::$dataPath);
+        $result = $fm->createDirectory($slug, $path, $dirname);
+
+        if (!$result['success']) {
+            self::jsonResponse($result, 400);
+            return;
+        }
+
+        self::logAction("ایجاد پوشه جدید '{$dirname}' در '{$slug}'");
+        self::jsonResponse($result);
+    }
+
+    /**
+     * File Manager: Rename Item.
+     */
+    private static function actionFmRename(): void
+    {
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $oldPath = (string)($_POST['old_path'] ?? '');
+        $newName = (string)($_POST['new_name'] ?? '');
+
+        $fm = new FileManager(self::$publicHtmlPath, self::$dataPath);
+        $result = $fm->renameItem($slug, $oldPath, $newName);
+
+        if (!$result['success']) {
+            self::jsonResponse($result, 400);
+            return;
+        }
+
+        self::logAction("تغییر نام در '{$slug}': '{$oldPath}' به '{$newName}'");
+        self::jsonResponse($result);
+    }
+
+    /**
+     * File Manager: Delete Item.
+     */
+    private static function actionFmDelete(): void
+    {
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $itemPath = (string)($_POST['item_path'] ?? '');
+
+        $fm = new FileManager(self::$publicHtmlPath, self::$dataPath);
+        $result = $fm->deleteItem($slug, $itemPath);
+
+        if (!$result['success']) {
+            self::jsonResponse($result, 400);
+            return;
+        }
+
+        self::logAction("حذف '{$itemPath}' در پروژه '{$slug}'");
+        self::jsonResponse($result);
+    }
+
+    /**
+     * File Manager: Upload File.
+     */
+    private static function actionFmUpload(): void
+    {
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $path = (string)($_POST['path'] ?? '');
+
+        if (!isset($_FILES['file'])) {
+            self::jsonResponse(['success' => false, 'error' => 'هیچ فایلی ارسال نشده است.'], 422);
+            return;
+        }
+
+        $fm = new FileManager(self::$publicHtmlPath, self::$dataPath);
+        $result = $fm->uploadFile($slug, $path, $_FILES['file']);
+
+        if (!$result['success']) {
+            self::jsonResponse($result, 400);
+            return;
+        }
+
+        self::logAction("آپلود فایل به '{$slug}/{$path}'");
+        self::jsonResponse($result);
     }
 
     /**

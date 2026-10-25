@@ -13,6 +13,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const sqliteModal = document.getElementById('sqliteModal');
     const mysqlModal = document.getElementById('mysqlModal');
     const quotaModal = document.getElementById('quotaModal');
+    const fmNewFileModal = document.getElementById('fmNewFileModal');
+    const fmNewDirModal = document.getElementById('fmNewDirModal');
+    const fmRenameModal = document.getElementById('fmRenameModal');
+    const fmDeleteModal = document.getElementById('fmDeleteModal');
+    const fmUploadModal = document.getElementById('fmUploadModal');
+    const fmImageModal = document.getElementById('fmImageModal');
 
     // Forms
     const deployForm = document.getElementById('deployForm');
@@ -21,6 +27,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const sqliteForm = document.getElementById('sqliteForm');
     const mysqlForm = document.getElementById('mysqlForm');
     const quotaForm = document.getElementById('quotaForm');
+    const fmNewFileForm = document.getElementById('fmNewFileForm');
+    const fmNewDirForm = document.getElementById('fmNewDirForm');
+    const fmRenameForm = document.getElementById('fmRenameForm');
+    const fmDeleteForm = document.getElementById('fmDeleteForm');
+    const fmUploadForm = document.getElementById('fmUploadForm');
 
     // Database Studio elements
     let activeDbId = null;
@@ -216,6 +227,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setupDropzone('deployDropzone', 'deployZipInput', 'deployFilename');
     setupDropzone('updateDropzone', 'updateZipInput', 'updateFilename');
+    setupDropzone('fmUploadDropzone', 'fmUploadFileInput', 'fmUploadFilename');
+
+    /**
+     * Open File Manager from Sites Table
+     */
+    document.querySelectorAll('[data-action="open-files"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const slug = btn.getAttribute('data-slug');
+            const filesTabBtn = document.querySelector('[data-tab="tab-files"]');
+            if (filesTabBtn) filesTabBtn.click();
+            const projectSelect = document.getElementById('fmProjectSelect');
+            if (projectSelect) {
+                projectSelect.value = slug;
+                loadFmDirectory(slug, '');
+            }
+        });
+    });
 
     /**
      * Open Update Modal
@@ -785,6 +813,600 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // =========================================================================
+    // Service File Manager & Code Editor
+    // =========================================================================
+    let fmActiveSlug = null;
+    let fmCurrentPath = '';
+    let fmActiveFile = null;
+    let fmIsDirty = false;
+
+    const fmProjectSelect = document.getElementById('fmProjectSelect');
+    const fmBreadcrumbs = document.getElementById('fmBreadcrumbs');
+    const fmTableBody = document.getElementById('fmTableBody');
+    const fmExplorerView = document.getElementById('fmExplorerView');
+    const fmEditorView = document.getElementById('fmEditorView');
+    const fmEditorFilename = document.getElementById('fmEditorFilename');
+    const fmEditorSyntaxBadge = document.getElementById('fmEditorSyntaxBadge');
+    const fmEditorSize = document.getElementById('fmEditorSize');
+    const fmEditorDirty = document.getElementById('fmEditorDirty');
+    const fmEditorTextarea = document.getElementById('fmEditorTextarea');
+    const fmEditorLineNumbers = document.getElementById('fmEditorLineNumbers');
+    const fmEditorSaveBtn = document.getElementById('fmEditorSaveBtn');
+    const fmEditorCloseBtn = document.getElementById('fmEditorCloseBtn');
+    const fmEditorStatusText = document.getElementById('fmEditorStatusText');
+    const fmEditorCursorPos = document.getElementById('fmEditorCursorPos');
+
+    // Auto-load files on tab click or project select
+    document.querySelector('[data-tab="tab-files"]')?.addEventListener('click', () => {
+        if (!fmActiveSlug && fmProjectSelect && fmProjectSelect.value) {
+            fmActiveSlug = fmProjectSelect.value;
+            loadFmDirectory(fmActiveSlug, '');
+        }
+    });
+
+    if (fmProjectSelect) {
+        fmProjectSelect.addEventListener('change', () => {
+            fmActiveSlug = fmProjectSelect.value;
+            fmCurrentPath = '';
+            closeFmEditor();
+            loadFmDirectory(fmActiveSlug, '');
+        });
+    }
+
+    const fmRefreshBtn = document.getElementById('fmRefreshBtn');
+    if (fmRefreshBtn) {
+        fmRefreshBtn.addEventListener('click', () => {
+            if (fmActiveSlug) loadFmDirectory(fmActiveSlug, fmCurrentPath);
+        });
+    }
+
+    // Modal triggers for FM
+    document.getElementById('fmNewFileBtn')?.addEventListener('click', () => {
+        if (!fmActiveSlug) {
+            showToast('لطفاً ابتدا یک پروژه را انتخاب نمایید.', 'warning');
+            return;
+        }
+        openModal(fmNewFileModal);
+    });
+
+    document.getElementById('fmNewDirBtn')?.addEventListener('click', () => {
+        if (!fmActiveSlug) {
+            showToast('لطفاً ابتدا یک پروژه را انتخاب نمایید.', 'warning');
+            return;
+        }
+        openModal(fmNewDirModal);
+    });
+
+    document.getElementById('fmOpenUploadModalBtn')?.addEventListener('click', () => {
+        if (!fmActiveSlug) {
+            showToast('لطفاً ابتدا یک پروژه را انتخاب نمایید.', 'warning');
+            return;
+        }
+        openModal(fmUploadModal);
+    });
+
+    /**
+     * Load Directory via AJAX
+     */
+    function loadFmDirectory(slug, path) {
+        if (!slug) return;
+        fmActiveSlug = slug;
+        fmCurrentPath = path;
+
+        if (fmTableBody) {
+            fmTableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">در حال بارگذاری فایل‌ها...</td></tr>`;
+        }
+
+        fetch(`./?action=fm_list&slug=${encodeURIComponent(slug)}&path=${encodeURIComponent(path)}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                renderFmDirectory(data);
+            } else {
+                if (fmTableBody) {
+                    fmTableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger); padding: 2rem;">خطا: ${escapeHtml(data.error || 'عدم دسترسی')}</td></tr>`;
+                }
+            }
+        })
+        .catch(() => {
+            if (fmTableBody) {
+                fmTableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger); padding: 2rem;">خطای شبکه در دریافت لیست فایل‌ها.</td></tr>`;
+            }
+        });
+    }
+
+    /**
+     * Render Directory Table & Breadcrumbs
+     */
+    function renderFmDirectory(data) {
+        // Render Breadcrumbs
+        if (fmBreadcrumbs && data.breadcrumbs) {
+            fmBreadcrumbs.innerHTML = '';
+            data.breadcrumbs.forEach((crumb, idx) => {
+                if (idx > 0) {
+                    const sep = document.createElement('span');
+                    sep.className = 'fm-crumb-sep';
+                    sep.textContent = '/';
+                    fmBreadcrumbs.appendChild(sep);
+                }
+                const item = document.createElement('span');
+                item.className = 'fm-crumb-item' + (idx === data.breadcrumbs.length - 1 ? ' active' : '');
+                item.textContent = crumb.name;
+                if (idx !== data.breadcrumbs.length - 1) {
+                    item.addEventListener('click', () => loadFmDirectory(data.slug, crumb.path));
+                }
+                fmBreadcrumbs.appendChild(item);
+            });
+        }
+
+        if (!fmTableBody) return;
+        fmTableBody.innerHTML = '';
+
+        // Parent directory row (..)
+        if (data.parent_path !== null && data.parent_path !== undefined) {
+            const tr = document.createElement('tr');
+            tr.className = 'fm-item-row';
+            tr.innerHTML = `
+                <td colspan="4">
+                    <div class="fm-item-name" style="color: var(--accent);">
+                        <span class="fm-icon">📁</span>
+                        <span>.. (پوشه والد)</span>
+                    </div>
+                </td>
+            `;
+            tr.addEventListener('click', () => loadFmDirectory(data.slug, data.parent_path));
+            fmTableBody.appendChild(tr);
+        }
+
+        if (data.folders.length === 0 && data.files.length === 0) {
+            const emptyTr = document.createElement('tr');
+            emptyTr.innerHTML = `<td colspan="4" style="text-align: center; color: var(--text-muted); padding: 2rem;">این پوشه خالی است.</td>`;
+            fmTableBody.appendChild(emptyTr);
+            return;
+        }
+
+        // Render Folders
+        data.folders.forEach(f => {
+            const tr = document.createElement('tr');
+            tr.className = 'fm-item-row';
+            tr.innerHTML = `
+                <td>
+                    <div class="fm-item-name">
+                        <span class="fm-icon">📁</span>
+                        <strong style="color: var(--text-primary);">${escapeHtml(f.name)}</strong>
+                    </div>
+                </td>
+                <td style="color: var(--text-muted); font-size: 0.8rem;">پوشه</td>
+                <td style="color: var(--text-secondary); font-size: 0.8rem; direction: ltr;">${escapeHtml(f.mtime)}</td>
+                <td style="text-align: center;">
+                    <div style="display: flex; gap: 0.3rem; justify-content: center;" onclick="event.stopPropagation();">
+                        <button class="copy-btn" data-fm-rename="${escapeHtml(f.path)}" data-fm-name="${escapeHtml(f.name)}" title="تغییر نام">🏷️</button>
+                        <button class="copy-btn" style="color: var(--danger); border-color: rgba(239,68,68,0.3);" data-fm-delete="${escapeHtml(f.path)}" title="حذف پوشه">🗑️</button>
+                    </div>
+                </td>
+            `;
+            tr.addEventListener('click', () => loadFmDirectory(data.slug, f.path));
+            fmTableBody.appendChild(tr);
+        });
+
+        // Render Files
+        data.files.forEach(f => {
+            const tr = document.createElement('tr');
+            tr.className = 'fm-item-row';
+
+            let icon = '📄';
+            if (f.ext === 'php' || f.ext === 'phtml') icon = '⚡';
+            else if (f.ext === 'html' || f.ext === 'htm') icon = '🌐';
+            else if (f.ext === 'css' || f.ext === 'scss') icon = '🎨';
+            else if (f.ext === 'js' || f.ext === 'ts') icon = '📜';
+            else if (f.ext === 'json') icon = '📦';
+            else if (f.is_image) icon = '🖼️';
+
+            tr.innerHTML = `
+                <td>
+                    <div class="fm-item-name">
+                        <span class="fm-icon">${icon}</span>
+                        <span>${escapeHtml(f.name)}</span>
+                    </div>
+                </td>
+                <td style="color: var(--text-secondary); font-size: 0.82rem; direction: ltr;">${escapeHtml(f.formatted_size)}</td>
+                <td style="color: var(--text-secondary); font-size: 0.8rem; direction: ltr;">${escapeHtml(f.mtime)}</td>
+                <td style="text-align: center;">
+                    <div style="display: flex; gap: 0.3rem; justify-content: center;" onclick="event.stopPropagation();">
+                        ${f.is_text ? `<button class="copy-btn" data-fm-edit="${escapeHtml(f.path)}" title="ویرایش کد">✏️ ویرایش</button>` : ''}
+                        ${f.is_image ? `<button class="copy-btn" data-fm-image="${escapeHtml(f.path)}" data-fm-name="${escapeHtml(f.name)}" title="پیش‌نمایش تصویر">👁️ نمایش</button>` : ''}
+                        <button class="copy-btn" data-fm-rename="${escapeHtml(f.path)}" data-fm-name="${escapeHtml(f.name)}" title="تغییر نام">🏷️</button>
+                        <button class="copy-btn" style="color: var(--danger); border-color: rgba(239,68,68,0.3);" data-fm-delete="${escapeHtml(f.path)}" title="حذف">🗑️</button>
+                    </div>
+                </td>
+            `;
+
+            tr.addEventListener('click', () => {
+                if (f.is_text) {
+                    openFmEditor(data.slug, f.path);
+                } else if (f.is_image) {
+                    previewFmImage(data.slug, f.path, f.name);
+                }
+            });
+
+            fmTableBody.appendChild(tr);
+        });
+
+        // Wire Action Buttons inside table
+        fmTableBody.querySelectorAll('[data-fm-edit]').forEach(b => {
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openFmEditor(data.slug, b.getAttribute('data-fm-edit'));
+            });
+        });
+
+        fmTableBody.querySelectorAll('[data-fm-image]').forEach(b => {
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                previewFmImage(data.slug, b.getAttribute('data-fm-image'), b.getAttribute('data-fm-name'));
+            });
+        });
+
+        fmTableBody.querySelectorAll('[data-fm-rename]').forEach(b => {
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const path = b.getAttribute('data-fm-rename');
+                const name = b.getAttribute('data-fm-name');
+                document.getElementById('fmRenameOldPathInput').value = path;
+                document.getElementById('fmRenameNewNameInput').value = name;
+                openModal(fmRenameModal);
+            });
+        });
+
+        fmTableBody.querySelectorAll('[data-fm-delete]').forEach(b => {
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const path = b.getAttribute('data-fm-delete');
+                document.getElementById('fmDeletePathInput').value = path;
+                document.getElementById('fmDeleteTargetDisplay').textContent = `${data.slug}/${path}`;
+                openModal(fmDeleteModal);
+            });
+        });
+    }
+
+    /**
+     * Preview Image in Modal
+     */
+    function previewFmImage(slug, filePath, filename) {
+        const img = document.getElementById('fmImagePreview');
+        const title = document.getElementById('fmImageTitle');
+        const dl = document.getElementById('fmImageDownloadBtn');
+        const url = `/${slug}/${filePath}`;
+        if (img) img.src = url;
+        if (title) title.textContent = `پیش‌نمایش: ${filename}`;
+        if (dl) dl.href = url;
+        openModal(fmImageModal);
+    }
+
+    /**
+     * Open Code Editor
+     */
+    function openFmEditor(slug, filePath) {
+        fmActiveSlug = slug;
+        fmActiveFile = filePath;
+        fmIsDirty = false;
+
+        fetch(`./?action=fm_read&slug=${encodeURIComponent(slug)}&file=${encodeURIComponent(filePath)}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) {
+                showToast(data.error || 'خطا در باز کردن فایل.', 'error');
+                return;
+            }
+
+            fmExplorerView.style.display = 'none';
+            fmEditorView.style.display = 'block';
+
+            if (fmEditorFilename) fmEditorFilename.textContent = data.filename;
+            if (fmEditorSyntaxBadge) fmEditorSyntaxBadge.textContent = (data.syntax || 'TEXT').toUpperCase();
+            if (fmEditorSize) fmEditorSize.textContent = data.formatted_size;
+            if (fmEditorDirty) fmEditorDirty.style.display = 'none';
+            if (fmEditorStatusText) fmEditorStatusText.textContent = `ویرایش ${data.filename} (${data.mtime})`;
+
+            if (fmEditorTextarea) {
+                fmEditorTextarea.value = data.content || '';
+                updateLineNumbers();
+                fmEditorTextarea.focus();
+            }
+        })
+        .catch(() => {
+            showToast('خطای شبکه در دریافت محتوای فایل.', 'error');
+        });
+    }
+
+    /**
+     * Close Code Editor
+     */
+    function closeFmEditor() {
+        if (fmIsDirty && !confirm('تغییرات ذخیره‌نشده دارید. آیا از خروج مطمئن هستید؟')) {
+            return;
+        }
+        fmActiveFile = null;
+        fmIsDirty = false;
+        if (fmEditorView) fmEditorView.style.display = 'none';
+        if (fmExplorerView) fmExplorerView.style.display = 'block';
+        if (fmActiveSlug) loadFmDirectory(fmActiveSlug, fmCurrentPath);
+    }
+
+    if (fmEditorCloseBtn) {
+        fmEditorCloseBtn.addEventListener('click', closeFmEditor);
+    }
+
+    /**
+     * Save File in Editor
+     */
+    function saveFmEditor() {
+        if (!fmActiveSlug || !fmActiveFile) return;
+
+        const content = fmEditorTextarea ? fmEditorTextarea.value : '';
+        const saveBtn = fmEditorSaveBtn;
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'در حال ذخیره...';
+        }
+
+        const formData = new FormData();
+        formData.append('csrf_token', csrfToken);
+        formData.append('slug', fmActiveSlug);
+        formData.append('file', fmActiveFile);
+        formData.append('content', content);
+
+        fetch('./?action=fm_save', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = '💾 ذخیره فایل (Ctrl+S)';
+            }
+            if (data.success) {
+                fmIsDirty = false;
+                if (fmEditorDirty) fmEditorDirty.style.display = 'none';
+                if (fmEditorSize) fmEditorSize.textContent = data.formatted_size;
+                if (fmEditorStatusText) fmEditorStatusText.textContent = `ذخیره شد در ${data.mtime}`;
+                showToast(data.message, 'success', 2000);
+            } else {
+                showToast(data.error || 'خطا در ذخیره فایل.', 'error');
+            }
+        })
+        .catch(() => {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = '💾 ذخیره فایل (Ctrl+S)';
+            }
+            showToast('خطای شبکه در ذخیره‌سازی.', 'error');
+        });
+    }
+
+    if (fmEditorSaveBtn) {
+        fmEditorSaveBtn.addEventListener('click', saveFmEditor);
+    }
+
+    // Line Numbers & Tab Key in Editor
+    if (fmEditorTextarea) {
+        fmEditorTextarea.addEventListener('input', () => {
+            fmIsDirty = true;
+            if (fmEditorDirty) fmEditorDirty.style.display = 'inline';
+            updateLineNumbers();
+            updateCursorPos();
+        });
+
+        fmEditorTextarea.addEventListener('click', updateCursorPos);
+        fmEditorTextarea.addEventListener('keyup', updateCursorPos);
+
+        fmEditorTextarea.addEventListener('scroll', () => {
+            if (fmEditorLineNumbers) {
+                fmEditorLineNumbers.scrollTop = fmEditorTextarea.scrollTop;
+            }
+        });
+
+        // Tab Indentation (4 spaces)
+        fmEditorTextarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = fmEditorTextarea.selectionStart;
+                const end = fmEditorTextarea.selectionEnd;
+                fmEditorTextarea.value = fmEditorTextarea.value.substring(0, start) + '    ' + fmEditorTextarea.value.substring(end);
+                fmEditorTextarea.selectionStart = fmEditorTextarea.selectionEnd = start + 4;
+                fmIsDirty = true;
+                if (fmEditorDirty) fmEditorDirty.style.display = 'inline';
+                updateLineNumbers();
+            }
+
+            // Ctrl+S / Cmd+S Shortcut
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                saveFmEditor();
+            }
+        });
+    }
+
+    function updateLineNumbers() {
+        if (!fmEditorTextarea || !fmEditorLineNumbers) return;
+        const lineCount = fmEditorTextarea.value.split('\n').length;
+        let nums = '';
+        for (let i = 1; i <= lineCount; i++) {
+            nums += i + '\n';
+        }
+        fmEditorLineNumbers.textContent = nums;
+    }
+
+    function updateCursorPos() {
+        if (!fmEditorTextarea || !fmEditorCursorPos) return;
+        const pos = fmEditorTextarea.selectionStart;
+        const lines = fmEditorTextarea.value.substring(0, pos).split('\n');
+        const ln = lines.length;
+        const col = lines[lines.length - 1].length + 1;
+        fmEditorCursorPos.textContent = `Ln ${ln}, Col ${col}`;
+    }
+
+    // Modal Form Submissions
+    if (fmNewFileForm) {
+        fmNewFileForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const filename = document.getElementById('fmNewFileNameInput').value.trim();
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('slug', fmActiveSlug);
+            formData.append('path', fmCurrentPath);
+            formData.append('filename', filename);
+
+            fetch('./?action=fm_create_file', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeModal(fmNewFileModal);
+                    loadFmDirectory(fmActiveSlug, fmCurrentPath);
+                } else {
+                    showToast(data.error || 'خطا در ایجاد فایل.', 'error');
+                }
+            })
+            .catch(() => showToast('خطای شبکه.', 'error'));
+        });
+    }
+
+    if (fmNewDirForm) {
+        fmNewDirForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const dirname = document.getElementById('fmNewDirNameInput').value.trim();
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('slug', fmActiveSlug);
+            formData.append('path', fmCurrentPath);
+            formData.append('dirname', dirname);
+
+            fetch('./?action=fm_create_dir', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeModal(fmNewDirModal);
+                    loadFmDirectory(fmActiveSlug, fmCurrentPath);
+                } else {
+                    showToast(data.error || 'خطا در ایجاد پوشه.', 'error');
+                }
+            })
+            .catch(() => showToast('خطای شبکه.', 'error'));
+        });
+    }
+
+    if (fmRenameForm) {
+        fmRenameForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const oldPath = document.getElementById('fmRenameOldPathInput').value;
+            const newName = document.getElementById('fmRenameNewNameInput').value.trim();
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('slug', fmActiveSlug);
+            formData.append('old_path', oldPath);
+            formData.append('new_name', newName);
+
+            fetch('./?action=fm_rename', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeModal(fmRenameModal);
+                    loadFmDirectory(fmActiveSlug, fmCurrentPath);
+                } else {
+                    showToast(data.error || 'خطا در تغییر نام.', 'error');
+                }
+            })
+            .catch(() => showToast('خطای شبکه.', 'error'));
+        });
+    }
+
+    if (fmDeleteForm) {
+        fmDeleteForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const itemPath = document.getElementById('fmDeletePathInput').value;
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('slug', fmActiveSlug);
+            formData.append('item_path', itemPath);
+
+            fetch('./?action=fm_delete', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeModal(fmDeleteModal);
+                    loadFmDirectory(fmActiveSlug, fmCurrentPath);
+                } else {
+                    showToast(data.error || 'خطا در حذف.', 'error');
+                }
+            })
+            .catch(() => showToast('خطای شبکه.', 'error'));
+        });
+    }
+
+    if (fmUploadForm) {
+        fmUploadForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const submitBtn = fmUploadForm.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'در حال آپلود...';
+
+            const formData = new FormData(fmUploadForm);
+            formData.append('csrf_token', csrfToken);
+            formData.append('slug', fmActiveSlug);
+            formData.append('path', fmCurrentPath);
+
+            fetch('./?action=fm_upload', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'آپلود';
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeModal(fmUploadModal);
+                    loadFmDirectory(fmActiveSlug, fmCurrentPath);
+                } else {
+                    showToast(data.error || 'خطا در آپلود.', 'error');
+                }
+            })
+            .catch(() => {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'آپلود';
+                showToast('خطای شبکه.', 'error');
+            });
+        });
+    }
 
     function fallbackCopy(text, btn) {
         const input = document.createElement('textarea');

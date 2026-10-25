@@ -5,12 +5,14 @@ namespace Panel;
 
 final class SiteManager
 {
+    private string $dataPath;
     private string $dataFile;
     private string $publicHtmlPath;
 
     public function __construct(string $dataPath, string $publicHtmlPath)
     {
-        $this->dataFile = $dataPath . '/sites.json';
+        $this->dataPath = rtrim($dataPath, '/\\');
+        $this->dataFile = $this->dataPath . '/sites.json';
         $this->publicHtmlPath = rtrim($publicHtmlPath, '/\\');
     }
 
@@ -41,7 +43,7 @@ final class SiteManager
     }
 
     /**
-     * Get overall disk statistics for host and deployed services.
+     * Get overall disk statistics for host and deployed services, including Deployer footprint.
      */
     public function getDiskStats(?int $customQuotaMb = null): array
     {
@@ -53,6 +55,11 @@ final class SiteManager
             $servicesTotalBytes += (int)($site['total_size'] ?? 0);
             $totalFiles += (int)($site['file_count'] ?? 0);
         }
+
+        // Measure panel Deployer core & data storage
+        $deployerStorage = $this->getDeployerStorageSize();
+        $totalAppUsedBytes = $servicesTotalBytes + $deployerStorage['bytes'];
+        $totalAppFiles = $totalFiles + $deployerStorage['files'];
 
         // Physical filesystem partition (what statvfs reports)
         $partTotal = @disk_total_space($this->publicHtmlPath);
@@ -70,15 +77,15 @@ final class SiteManager
             $isAccountQuota = true;
             $quotaSource = 'cpanel_quota';
             $hostTotal = $cpanelQuota['total_bytes'];
-            // If cPanel reported less than actual services, use max
-            $hostUsed = max($cpanelQuota['used_bytes'], $servicesTotalBytes);
+            // If cPanel reported less than actual services + panel, use max
+            $hostUsed = max($cpanelQuota['used_bytes'], $totalAppUsedBytes);
             $hostFree = max(0, $hostTotal - $hostUsed);
             $hostUsedPercent = round(($hostUsed / $hostTotal) * 100, 1);
         } elseif ($customQuotaMb !== null && $customQuotaMb > 0) {
             $isAccountQuota = true;
             $quotaSource = 'custom_config';
             $hostTotal = $customQuotaMb * 1024 * 1024;
-            $hostUsed = $servicesTotalBytes;
+            $hostUsed = $totalAppUsedBytes;
             $hostFree = max(0, $hostTotal - $hostUsed);
             $hostUsedPercent = round(($hostUsed / $hostTotal) * 100, 1);
         } else {
@@ -102,13 +109,77 @@ final class SiteManager
                 'partition_total_formatted' => $partTotal ? self::formatBytes((int)$partTotal) : 'نامشخص',
                 'partition_free_formatted' => $partFree ? self::formatBytes((int)$partFree) : 'نامشخص'
             ],
+            'deployer' => [
+                'total_bytes' => $deployerStorage['bytes'],
+                'total_formatted' => self::formatBytes($deployerStorage['bytes']),
+                'total_files' => $deployerStorage['files'],
+                'percent_of_quota' => $hostTotal > 0 ? round(($deployerStorage['bytes'] / $hostTotal) * 100, 2) : 0
+            ],
             'services' => [
                 'total_bytes' => $servicesTotalBytes,
                 'total_formatted' => self::formatBytes($servicesTotalBytes),
                 'total_files' => $totalFiles,
                 'count' => count($sites),
-                'sites' => array_values($sites)
+                'sites' => array_values($sites),
+                'percent_of_quota' => $hostTotal > 0 ? round(($servicesTotalBytes / $hostTotal) * 100, 2) : 0
+            ],
+            'total_managed' => [
+                'total_bytes' => $totalAppUsedBytes,
+                'total_formatted' => self::formatBytes($totalAppUsedBytes),
+                'total_files' => $totalAppFiles,
+                'percent_of_quota' => $hostTotal > 0 ? round(($totalAppUsedBytes / $hostTotal) * 100, 2) : 0
             ]
+        ];
+    }
+
+    /**
+     * Calculate disk storage footprint of cPanel Deployer panel itself (panel_core + panel_data + root files).
+     */
+    public function getDeployerStorageSize(): array
+    {
+        $bytes = 0;
+        $files = 0;
+
+        $targets = [
+            __DIR__, // panel_core
+            $this->dataPath, // panel_data
+        ];
+
+        // Root entry files
+        $rootFiles = ['index.php', 'install.php', 'README.md', '.htaccess', 'cpanel-deployer.zip'];
+        foreach ($rootFiles as $rf) {
+            $fpath = $this->publicHtmlPath . DIRECTORY_SEPARATOR . $rf;
+            if (is_file($fpath)) {
+                $bytes += (int)@filesize($fpath);
+                $files++;
+            }
+        }
+
+        foreach ($targets as $targetDir) {
+            if (!is_dir($targetDir)) {
+                continue;
+            }
+
+            try {
+                $it = new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator($targetDir, \FilesystemIterator::SKIP_DOTS),
+                    \RecursiveIteratorIterator::SELF_FIRST
+                );
+
+                foreach ($it as $item) {
+                    if ($item->isFile()) {
+                        $bytes += (int)$item->getSize();
+                        $files++;
+                    }
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+
+        return [
+            'bytes' => $bytes,
+            'formatted' => self::formatBytes($bytes),
+            'files' => $files
         ];
     }
 

@@ -19,6 +19,8 @@ $baseUrl = $protocol . $host;
 
 $hostStats = $diskStats['host'] ?? [];
 $servicesStats = $diskStats['services'] ?? [];
+$deployerStats = $diskStats['deployer'] ?? [];
+$totalManaged = $diskStats['total_managed'] ?? [];
 $sqliteDbs = $databases['sqlite'] ?? [];
 $mysqlDbs = $databases['mysql'] ?? [];
 
@@ -76,22 +78,29 @@ ob_start();
             <?php endif; ?>
         </div>
 
-        <!-- 2. Services Storage Footprint -->
+        <!-- 2. Services & Panel Storage Footprint -->
         <div class="bento-card">
             <div class="bento-header">
-                <span class="bento-title">فضای مصرفی سرویس‌ها</span>
+                <span class="bento-title">فضای مصرفی سرویس‌ها و پنل</span>
                 <span class="bento-icon">📦</span>
             </div>
             <div class="bento-value" style="color: #60a5fa;">
-                <?= htmlspecialchars($servicesStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
+                <?= htmlspecialchars($totalManaged['total_formatted'] ?? $servicesStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
             </div>
             <div class="bento-sub">
-                <span>شامل <?= (int)($servicesStats['total_files'] ?? 0) ?> فایل</span>
+                <span>سایت‌ها: <?= htmlspecialchars($servicesStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?></span>
                 <span>•</span>
-                <span><?= count($sites) ?> سرویس مستقر</span>
+                <span style="color: #f59e0b;">دپلویر: <?= htmlspecialchars($deployerStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?></span>
             </div>
-            <div class="bento-progress-bg">
-                <div class="bento-progress-fill" style="width: <?= count($sites) > 0 ? '100' : '0' ?>%; background: #60a5fa;"></div>
+            <div class="bento-progress-bg" style="display: flex; overflow: hidden;">
+                <?php
+                $sShare = (!empty($totalManaged['total_bytes']) && $totalManaged['total_bytes'] > 0)
+                    ? round(($servicesStats['total_bytes'] / $totalManaged['total_bytes']) * 100, 1)
+                    : 0;
+                $dShare = max(0, 100 - $sShare);
+                ?>
+                <div style="height: 100%; width: <?= $sShare ?>%; background: #60a5fa;" title="سایت‌ها: <?= $sShare ?>%"></div>
+                <div style="height: 100%; width: <?= $dShare ?>%; background: #f59e0b;" title="دپلویر: <?= $dShare ?>%"></div>
             </div>
         </div>
 
@@ -144,49 +153,60 @@ ob_start();
     </div>
 
     <!-- Storage Distribution Visualizer -->
-    <?php if (!empty($sites)): ?>
-        <div class="storage-overview-card">
-            <div class="storage-overview-header">
-                <span class="storage-overview-title">تفکیک مصرف فضای هر سرویس روی هاست</span>
-                <span style="font-size: 0.8rem; color: var(--text-muted);">
-                    مجموع سرویس‌ها: <?= htmlspecialchars($servicesStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
-                </span>
-            </div>
-            <div class="storage-bar-wrapper">
-                <?php $colorIdx = 0; ?>
-                <?php foreach ($sites as $site): ?>
-                    <?php
-                    $color = $palette[$colorIdx % count($palette)];
-                    $colorIdx++;
-                    $pct = max(1.5, (float)($site['size_percent'] ?? 0));
-                    ?>
-                    <div class="storage-bar-segment"
-                         style="width: <?= $pct ?>%; background-color: <?= $color ?>;"
-                         title="<?= htmlspecialchars($site['name'] ?? $site['slug'], ENT_QUOTES, 'UTF-8') ?>: <?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?> (<?= $site['size_percent'] ?? 0 ?>%)">
-                    </div>
-                <?php endforeach; ?>
-            </div>
-            <div class="storage-legend">
-                <?php $colorIdx = 0; ?>
-                <?php foreach ($sites as $site): ?>
-                    <?php
-                    $color = $palette[$colorIdx % count($palette)];
-                    $colorIdx++;
-                    ?>
-                    <div class="legend-item" title="/<?= htmlspecialchars($site['slug'], ENT_QUOTES, 'UTF-8') ?>/">
-                        <span class="legend-dot" style="background-color: <?= $color ?>;"></span>
-                        <strong><?= htmlspecialchars($site['name'] ?? $site['slug'], ENT_QUOTES, 'UTF-8') ?>:</strong>
-                        <span><?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?> (<?= $site['size_percent'] ?? 0 ?>%)</span>
-                    </div>
-                <?php endforeach; ?>
+    <div class="storage-overview-card">
+        <div class="storage-overview-header">
+            <span class="storage-overview-title">تفکیک مصرف فضای پروژه‌ها و پنل روی هاست</span>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">
+                مجموع تحت مدیریت: <?= htmlspecialchars($totalManaged['total_formatted'] ?? $servicesStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
+            </span>
+        </div>
+        <div class="storage-bar-wrapper">
+            <?php $colorIdx = 0; ?>
+            <?php foreach ($sites as $site): ?>
+                <?php
+                $color = $palette[$colorIdx % count($palette)];
+                $colorIdx++;
+                $pct = max(1.5, (float)($site['size_percent'] ?? 0));
+                ?>
+                <div class="storage-bar-segment"
+                     style="width: <?= $pct ?>%; background-color: <?= $color ?>;"
+                     title="<?= htmlspecialchars($site['name'] ?? $site['slug'], ENT_QUOTES, 'UTF-8') ?>: <?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?> (<?= $site['size_percent'] ?? 0 ?>%)">
+                </div>
+            <?php endforeach; ?>
+            <!-- Deployer System Slice -->
+            <div class="storage-bar-segment"
+                 style="width: <?= max(2.5, (float)($deployerStats['percent_of_quota'] ?? 2.5)) ?>%; background-color: #f59e0b;"
+                 title="سامانه cPanel Deployer: <?= htmlspecialchars($deployerStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>">
             </div>
         </div>
-    <?php endif; ?>
+        <div class="storage-legend">
+            <?php $colorIdx = 0; ?>
+            <?php foreach ($sites as $site): ?>
+                <?php
+                $color = $palette[$colorIdx % count($palette)];
+                $colorIdx++;
+                ?>
+                <div class="legend-item" title="/<?= htmlspecialchars($site['slug'], ENT_QUOTES, 'UTF-8') ?>/">
+                    <span class="legend-dot" style="background-color: <?= $color ?>;"></span>
+                    <strong><?= htmlspecialchars($site['name'] ?? $site['slug'], ENT_QUOTES, 'UTF-8') ?>:</strong>
+                    <span><?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?> (<?= $site['size_percent'] ?? 0 ?>%)</span>
+                </div>
+            <?php endforeach; ?>
+            <div class="legend-item" title="هسته پنل و داده‌ها">
+                <span class="legend-dot" style="background-color: #f59e0b;"></span>
+                <strong>سامانه cPanel Deployer:</strong>
+                <span><?= htmlspecialchars($deployerStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?></span>
+            </div>
+        </div>
+    </div>
 
     <!-- Navigation Tabs -->
     <div class="nav-tabs">
         <button class="tab-btn active" data-tab="tab-services">
             <span>🌐</span> سایت‌ها و سرویس‌ها (<?= count($sites) ?>)
+        </button>
+        <button class="tab-btn" data-tab="tab-files">
+            <span>📁</span> مدیریت فایل و کد پروژه‌ها
         </button>
         <button class="tab-btn" data-tab="tab-databases">
             <span>🗄️</span> مدیریت دیتابیس (<?= count($sqliteDbs) + count($mysqlDbs) ?>)
@@ -323,6 +343,9 @@ ob_start();
                                             <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت در تب جدید">
                                                 مشاهده
                                             </a>
+                                            <button class="btn btn-secondary btn-sm" data-action="open-files" data-slug="<?= $slug ?>" title="مدیریت فایل‌ها و ویرایش کدهای این پروژه">
+                                                📁 فایل‌ها
+                                            </button>
                                             <button class="btn btn-secondary btn-sm" data-action="open-update" data-slug="<?= $slug ?>" data-name="<?= $name ?>" data-fix-routes="<?= !empty($site['fix_routes']) ? '1' : '0' ?>" title="به‌روزرسانی با ZIP جدید">
                                                 به‌روزرسانی
                                             </button>
@@ -340,7 +363,106 @@ ob_start();
         </div>
     </div>
 
-    <!-- TAB 2: DATABASE MANAGER -->
+    <!-- TAB 2: SERVICE FILE MANAGER & CODE EDITOR -->
+    <div id="tab-files" class="tab-pane">
+        <div class="fm-container">
+            <!-- Toolbar -->
+            <div class="fm-toolbar">
+                <div class="fm-project-selector-wrapper">
+                    <label for="fmProjectSelect" style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0;">پروژه:</label>
+                    <select id="fmProjectSelect" class="form-input" style="width: auto; min-width: 220px; padding: 0.45rem 0.85rem; font-size: 0.85rem;">
+                        <?php if (empty($sites)): ?>
+                            <option value="">(هیچ سایتی مستقر نیست)</option>
+                        <?php else: ?>
+                            <?php foreach ($sites as $s): ?>
+                                <option value="<?= htmlspecialchars($s['slug'], ENT_QUOTES, 'UTF-8') ?>">
+                                    <?= htmlspecialchars($s['name'] ?? $s['slug'], ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars($s['slug'], ENT_QUOTES, 'UTF-8') ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </select>
+                </div>
+
+                <!-- Breadcrumbs -->
+                <div class="fm-breadcrumbs-bar" id="fmBreadcrumbs">
+                    <span class="fm-crumb-item active" data-path="">/</span>
+                </div>
+
+                <!-- Actions -->
+                <div class="fm-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" id="fmNewFileBtn" title="ایجاد فایل متنی جدید">
+                        <span>+📄</span> فایل جدید
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="fmNewDirBtn" title="ایجاد پوشه جدید">
+                        <span>+📁</span> پوشه جدید
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="fmOpenUploadModalBtn" title="آپلود فایل مستقیم در این مسیر">
+                        <span>⬆</span> آپلود فایل
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="fmRefreshBtn" title="تازه‌سازی">
+                        🔄
+                    </button>
+                </div>
+            </div>
+
+            <!-- FM Main Card -->
+            <div class="fm-main-card">
+                <!-- Explorer View -->
+                <div id="fmExplorerView">
+                    <div class="table-responsive">
+                        <table class="data-table fm-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 45%;">نام</th>
+                                    <th style="width: 15%;">حجم</th>
+                                    <th style="width: 20%;">آخرین تغییرات</th>
+                                    <th style="width: 20%; text-align: center;">عملیات</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fmTableBody">
+                                <tr>
+                                    <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 3rem;">
+                                        در حال بارگذاری فایل‌ها...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Editor View -->
+                <div id="fmEditorView" style="display: none;">
+                    <div class="fm-editor-header">
+                        <div class="fm-editor-file-info">
+                            <span class="fm-editor-icon">📄</span>
+                            <strong id="fmEditorFilename" style="color: var(--text-primary); direction: ltr;">-</strong>
+                            <span id="fmEditorSyntaxBadge" class="badge badge-static" style="font-size: 0.7rem; text-transform: uppercase;">TEXT</span>
+                            <span id="fmEditorSize" style="font-size: 0.78rem; color: var(--text-muted);">-</span>
+                            <span id="fmEditorDirty" style="display: none; color: var(--warning); font-size: 0.85rem;" title="تغییرات ذخیره‌نشده">● ذخیره‌نشده</span>
+                        </div>
+                        <div class="fm-editor-actions">
+                            <button type="button" id="fmEditorSaveBtn" class="btn btn-primary btn-sm" title="ذخیره تغییرات (Ctrl+S)">
+                                💾 ذخیره فایل (Ctrl+S)
+                            </button>
+                            <button type="button" id="fmEditorCloseBtn" class="btn btn-secondary btn-sm" title="بستن ویرایشگر و بازگشت به لیست">
+                                ✕ بستن ویرایشگر
+                            </button>
+                        </div>
+                    </div>
+                    <div class="fm-editor-wrapper">
+                        <div class="fm-editor-line-numbers" id="fmEditorLineNumbers">1</div>
+                        <textarea id="fmEditorTextarea" class="fm-editor-textarea" spellcheck="false" placeholder="محتوای فایل..."></textarea>
+                    </div>
+                    <div class="fm-editor-status">
+                        <span id="fmEditorStatusText" style="color: var(--text-muted); font-size: 0.78rem;">آماده</span>
+                        <span id="fmEditorCursorPos" style="color: var(--text-muted); font-size: 0.78rem; direction: ltr;">Ln 1, Col 1</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 3: DATABASE MANAGER -->
     <div id="tab-databases" class="tab-pane">
         <div class="db-studio-grid">
             <!-- Sidebar: DB List -->
@@ -682,6 +804,142 @@ ob_start();
                 <button type="submit" class="btn btn-primary">ذخیره سهمیه</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Modal: FM New File -->
+<div id="fmNewFileModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">ایجاد فایل جدید</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="fmNewFileForm">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="fmNewFileNameInput"><span class="req">*</span> نام فایل با پسوند</label>
+                    <input type="text" id="fmNewFileNameInput" name="filename" class="form-input" placeholder="مثال: custom.css یا header.php" required style="direction: ltr;">
+                    <div class="form-hint">فایل در مسیر پوشه فعلی پروژه ایجاد خواهد شد.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">ایجاد فایل</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: FM New Directory -->
+<div id="fmNewDirModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">ایجاد پوشه جدید</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="fmNewDirForm">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="fmNewDirNameInput"><span class="req">*</span> نام پوشه</label>
+                    <input type="text" id="fmNewDirNameInput" name="dirname" class="form-input" placeholder="مثال: components یا uploads" required style="direction: ltr;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">ایجاد پوشه</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: FM Rename -->
+<div id="fmRenameModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">تغییر نام</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="fmRenameForm">
+            <input type="hidden" id="fmRenameOldPathInput" name="old_path" value="">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="fmRenameNewNameInput"><span class="req">*</span> نام جدید</label>
+                    <input type="text" id="fmRenameNewNameInput" name="new_name" class="form-input" required style="direction: ltr;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">ذخیره نام جدید</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: FM Delete -->
+<div id="fmDeleteModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title" style="color: var(--danger);">حذف فایل یا پوشه</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="fmDeleteForm">
+            <input type="hidden" id="fmDeletePathInput" name="item_path" value="">
+            <div class="modal-body">
+                <p>آیا از حذف مورد زیر اطمینان کامل دارید؟ این عملیات غیرقابل بازگشت است:</p>
+                <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-sm); padding: 0.75rem 1rem; color: #fca5a5; font-family: var(--font-mono); direction: ltr; word-break: break-all;" id="fmDeleteTargetDisplay">
+                    -
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-danger">بله، حذف شود</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: FM Upload Single File -->
+<div id="fmUploadModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">آپلود فایل در پوشه فعلی</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="fmUploadForm" enctype="multipart/form-data">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label"><span class="req">*</span> انتخاب فایل</label>
+                    <div id="fmUploadDropzone" class="dropzone">
+                        <input type="file" id="fmUploadFileInput" name="file" required>
+                        <div class="dropzone-icon">📄</div>
+                        <div class="dropzone-text">فایل مورد نظر را اینجا رها کنید یا کلیک کنید</div>
+                        <div class="dropzone-sub">تصاویر، کدهای برنامه، استایل‌ها، فونت‌ها و اسناد مجاز هستند</div>
+                    </div>
+                    <div id="fmUploadFilename" class="selected-filename"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">آپلود</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: FM Image Preview -->
+<div id="fmImageModal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 700px;">
+        <div class="modal-header">
+            <div class="modal-title" id="fmImageTitle">پیش‌نمایش تصویر</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body" style="text-align: center; padding: 1.5rem; background: rgba(0,0,0,0.3); border-radius: var(--radius-sm);">
+            <img id="fmImagePreview" src="" alt="preview" style="max-width: 100%; max-height: 500px; object-fit: contain; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+        </div>
+        <div class="modal-footer">
+            <a id="fmImageDownloadBtn" href="" target="_blank" download class="btn btn-secondary">باز کردن در پنجره جدید</a>
+            <button type="button" class="btn btn-primary" data-close-modal>بستن</button>
+        </div>
     </div>
 </div>
 
