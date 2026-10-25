@@ -132,34 +132,38 @@ final class Security
     {
         $realBase = realpath($baseDir);
         if ($realBase === false) {
-            return false;
+            $realBase = rtrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $baseDir), DIRECTORY_SEPARATOR);
         }
 
-        // If target exists, resolve realpath
+        // Direct realpath check if target exists
         $realTarget = realpath($targetPath);
         if ($realTarget !== false) {
             return str_starts_with($realTarget, $realBase . DIRECTORY_SEPARATOR) || $realTarget === $realBase;
         }
 
-        // If target doesn't exist yet, normalize target path
-        $normalizedBase = rtrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $realBase), DIRECTORY_SEPARATOR);
-        $normalizedTarget = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $targetPath);
-
-        // Disallow '..' components
-        $parts = explode(DIRECTORY_SEPARATOR, $normalizedTarget);
-        $resolvedParts = [];
-        foreach ($parts as $part) {
-            if ($part === '' || $part === '.') {
-                continue;
-            }
-            if ($part === '..') {
-                return false;
-            }
-            $resolvedParts[] = $part;
+        // Disallow '..' path traversal
+        if (str_contains($targetPath, '..')) {
+            return false;
         }
 
-        $resolved = implode(DIRECTORY_SEPARATOR, $resolvedParts);
-        return str_starts_with($resolved, $normalizedBase . DIRECTORY_SEPARATOR);
+        // Traverse upwards to the nearest existing ancestor directory
+        $checkDir = $targetPath;
+        while (!file_exists($checkDir) && $checkDir !== dirname($checkDir)) {
+            $base = basename($checkDir);
+            if ($base === '..' || $base === '.' || str_contains($base, '/') || str_contains($base, '\\')) {
+                return false;
+            }
+            $checkDir = dirname($checkDir);
+        }
+
+        $realCheck = realpath($checkDir);
+        if ($realCheck === false) {
+            $normalizedBase = rtrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $realBase), DIRECTORY_SEPARATOR);
+            $normalizedTarget = rtrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $targetPath), DIRECTORY_SEPARATOR);
+            return str_starts_with($normalizedTarget, $normalizedBase . DIRECTORY_SEPARATOR) || $normalizedTarget === $normalizedBase;
+        }
+
+        return str_starts_with($realCheck, $realBase . DIRECTORY_SEPARATOR) || $realCheck === $realBase;
     }
 
     /**
