@@ -282,6 +282,11 @@ ob_start();
                                         <?php else: ?>
                                             <span class="badge badge-static">استاتیک</span>
                                         <?php endif; ?>
+                                        <?php if (!empty($site['fix_routes'])): ?>
+                                            <div style="margin-top: 0.25rem;">
+                                                <span class="badge" style="background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.3); font-size: 0.7rem;" title="روت‌های زیرشاخه اصلاح شده‌اند">روت تطبیقی ✓</span>
+                                            </div>
+                                        <?php endif; ?>
                                     </td>
                                     <td>
                                         <div class="service-size-cell">
@@ -318,7 +323,7 @@ ob_start();
                                             <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت در تب جدید">
                                                 مشاهده
                                             </a>
-                                            <button class="btn btn-secondary btn-sm" data-action="open-update" data-slug="<?= $slug ?>" data-name="<?= $name ?>" title="به‌روزرسانی با ZIP جدید">
+                                            <button class="btn btn-secondary btn-sm" data-action="open-update" data-slug="<?= $slug ?>" data-name="<?= $name ?>" data-fix-routes="<?= !empty($site['fix_routes']) ? '1' : '0' ?>" title="به‌روزرسانی با ZIP جدید">
                                                 به‌روزرسانی
                                             </button>
                                             <button class="btn btn-danger btn-sm" data-action="open-delete" data-slug="<?= $slug ?>" data-name="<?= $name ?>" title="حذف کامل سایت">
@@ -478,6 +483,18 @@ ob_start();
                     <div id="deployFilename" class="selected-filename"></div>
                 </div>
 
+                <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                    <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin-bottom: 0;">
+                        <input type="checkbox" name="fix_routes" value="1" checked style="margin-top: 0.25rem;">
+                        <div>
+                            <strong style="color: var(--text-primary); font-size: 0.88rem;">اصلاح خودکار روت‌ها و مسیرهای زیرشاخه (Subpath Auto-Fix)</strong>
+                            <div class="form-hint" style="margin-top: 0.2rem;">
+                                تزریق خودکار تگ <code>&lt;base href&gt;</code> در HTML، تنظیم RewriteBase در htaccess و تصحیح مسیرهای ریشه (مانند <code>/assets/...</code>) برای حل مشکل لود نشدن استایل‌ها و عکس‌ها در زیرمسیر.
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
                 <div class="progress-container">
                     <div class="progress-bar-bg">
                         <div class="progress-bar-fill"></div>
@@ -522,6 +539,18 @@ ob_start();
                         <div class="dropzone-sub">فایل‌ها ابتدا در پوشه موقت بررسی شده و سپس جایگزین می‌شوند.</div>
                     </div>
                     <div id="updateFilename" class="selected-filename"></div>
+                </div>
+
+                <div class="form-group" style="background: rgba(255,255,255,0.02); padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                    <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin-bottom: 0;">
+                        <input type="checkbox" id="updateFixRoutesCheckbox" name="fix_routes" value="1" style="margin-top: 0.25rem;">
+                        <div>
+                            <strong style="color: var(--text-primary); font-size: 0.88rem;">اصلاح خودکار روت‌ها و مسیرهای زیرشاخه (Subpath Auto-Fix)</strong>
+                            <div class="form-hint" style="margin-top: 0.2rem;">
+                                اعمال خودکار اصلاح روت‌ها و تبدیل آدرس‌های ریشه در نسخه جدید.
+                            </div>
+                        </div>
+                    </label>
                 </div>
 
                 <div class="form-hint" style="color: var(--warning);">

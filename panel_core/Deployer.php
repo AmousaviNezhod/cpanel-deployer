@@ -35,9 +35,10 @@ final class Deployer
      * @param array $fileInfo $_FILES['...'] array
      * @param string $slug Site directory slug
      * @param bool $isUpdate True if updating existing site
+     * @param bool $fixRoutes True if adapting root routes for subpath
      * @return array{success: bool, message: string, stats?: array}
      */
-    public function deploy(array $fileInfo, string $slug, bool $isUpdate = false): array
+    public function deploy(array $fileInfo, string $slug, bool $isUpdate = false, bool $fixRoutes = false): array
     {
         $targetDir = $this->publicHtmlPath . DIRECTORY_SEPARATOR . $slug;
 
@@ -78,6 +79,11 @@ final class Deployer
 
             // Strip single root folder if detected
             $this->stripSingleRootFolder($stagingDir);
+
+            // Adapt root-relative routes and inject <base href> if requested
+            if ($fixRoutes) {
+                $this->adaptSubpathRoutes($stagingDir, $slug);
+            }
 
             // Apply safe permissions
             Security::setSafePermissions($stagingDir);
@@ -417,5 +423,90 @@ final class Deployer
             'has_php' => $hasPhp,
             'type' => $hasPhp ? 'php' : 'static'
         ];
+    }
+
+    /**
+     * Adapt root-relative routes, inject <base href>, and configure RewriteBase for subpaths.
+     */
+    private function adaptSubpathRoutes(string $dir, string $slug): void
+    {
+        $escapedSlug = preg_quote($slug, '/');
+
+        try {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::SELF_FIRST
+            );
+
+            foreach ($iterator as $item) {
+                if (!$item->isFile()) {
+                    continue;
+                }
+
+                $filename = $item->getFilename();
+                $ext = strtolower($item->getExtension());
+                $path = $item->getPathname();
+
+                // 1. Process HTML / PHP templates
+                if (in_array($ext, ['html', 'htm', 'php', 'phtml'], true)) {
+                    $content = @file_get_contents($path);
+                    if ($content === false || $content === '') {
+                        continue;
+                    }
+
+                    $changed = false;
+
+                    // Inject or update <base href="/$slug/">
+                    if (preg_match('/<base\s[^>]*href=[\'"][^\'"]*[\'"][^>]*>/i', $content)) {
+                        $content = preg_replace('/<base\s[^>]*href=[\'"][^\'"]*[\'"][^>]*>/i', '<base href="/' . $slug . '/">', $content);
+                        $changed = true;
+                    } elseif (preg_match('/<head(\s[^>]*)?>/i', $content)) {
+                        $content = preg_replace('/<head(\s[^>]*)?>/i', "$0\n    <base href=\"/{$slug}/\">", $content, 1);
+                        $changed = true;
+                    }
+
+                    // Fix root-absolute paths in href, src, action
+                    $pattern = '/\b(href|src|action)=([\'"])\/(?!\/|' . $escapedSlug . '\/)([^\'"]*)\2/i';
+                    if (preg_match($pattern, $content)) {
+                        $content = preg_replace($pattern, '$1=$2/' . $slug . '/$3$2', $content);
+                        $changed = true;
+                    }
+
+                    if ($changed) {
+                        @file_put_contents($path, $content);
+                    }
+                }
+
+                // 2. Process CSS files
+                if ($ext === 'css') {
+                    $content = @file_get_contents($path);
+                    if ($content === false || $content === '') {
+                        continue;
+                    }
+
+                    $cssPattern = '/url\(\s*([\'"]?)\/(?!\/|' . $escapedSlug . '\/)(.*?)\1\s*\)/i';
+                    if (preg_match($cssPattern, $content)) {
+                        $content = preg_replace($cssPattern, 'url($1/' . $slug . '/$2$1)', $content);
+                        @file_put_contents($path, $content);
+                    }
+                }
+
+                // 3. Process .htaccess
+                if ($filename === '.htaccess') {
+                    $content = @file_get_contents($path);
+                    if ($content !== false && $content !== '') {
+                        if (preg_match('/RewriteBase\s+[^\r\n]+/i', $content)) {
+                            $content = preg_replace('/RewriteBase\s+[^\r\n]+/i', 'RewriteBase /' . $slug . '/', $content);
+                            @file_put_contents($path, $content);
+                        } elseif (preg_match('/RewriteEngine\s+On/i', $content)) {
+                            $content = preg_replace('/RewriteEngine\s+On/i', "RewriteEngine On\n    RewriteBase /{$slug}/", $content, 1);
+                            @file_put_contents($path, $content);
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Silently ignore traversal issues
+        }
     }
 }

@@ -224,8 +224,13 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('click', () => {
             const slug = btn.getAttribute('data-slug');
             const name = btn.getAttribute('data-name');
+            const fixRoutes = btn.getAttribute('data-fix-routes') === '1';
             document.getElementById('updateSlugInput').value = slug;
             document.getElementById('updateSiteNameDisplay').textContent = `${name} (/${slug}/)`;
+            const fixRoutesCb = document.getElementById('updateFixRoutesCheckbox');
+            if (fixRoutesCb) {
+                fixRoutesCb.checked = fixRoutes;
+            }
             openModal(updateModal);
         });
     });

@@ -272,9 +272,10 @@ final class Bootstrap
         $maxUpload = (int)(self::$config['max_upload_bytes'] ?? 104857600);
         $maxExtract = (int)(self::$config['max_extract_bytes'] ?? 314572800);
         $maxFiles = (int)(self::$config['max_file_count'] ?? 5000);
+        $fixRoutes = !empty($_POST['fix_routes']);
 
         $deployer = new Deployer(self::$publicHtmlPath, self::$dataPath, $maxUpload, $maxExtract, $maxFiles);
-        $result = $deployer->deploy($_FILES['zip_file'], $slug, $isUpdate);
+        $result = $deployer->deploy($_FILES['zip_file'], $slug, $isUpdate, $fixRoutes);
 
         if (!$result['success']) {
             self::jsonResponse(['success' => false, 'error' => $result['message']], 400);
@@ -287,6 +288,7 @@ final class Bootstrap
             'slug' => $slug,
             'type' => $stats['type'] ?? 'static',
             'has_php' => $stats['has_php'] ?? false,
+            'fix_routes' => $fixRoutes,
             'index_file' => $stats['index_file'] ?? null,
             'file_count' => $stats['file_count'] ?? 0,
             'total_size' => $stats['total_size'] ?? 0,

@@ -9,6 +9,7 @@ $tests = [
     'test_security.php',
     'test_auth.php',
     'test_deployer.php',
+    'test_fix_routes.php',
     'test_database_and_disk.php',
     'test_http_flow.php',
 ];
