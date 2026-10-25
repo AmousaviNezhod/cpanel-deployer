@@ -9,6 +9,7 @@ require_once __DIR__ . '/SiteManager.php';
 require_once __DIR__ . '/Deployer.php';
 require_once __DIR__ . '/DatabaseManager.php';
 require_once __DIR__ . '/FileManager.php';
+require_once __DIR__ . '/GitHubDeployer.php';
 
 final class Bootstrap
 {
@@ -167,6 +168,9 @@ final class Bootstrap
             'fm_rename' => self::actionFmRename(),
             'fm_delete' => self::actionFmDelete(),
             'fm_upload' => self::actionFmUpload(),
+            'deploy_github' => self::actionDeployGitHub(false),
+            'update_github' => self::actionDeployGitHub(true),
+            'sync_github' => self::actionSyncGitHub(),
             default => self::jsonResponse(['success' => false, 'error' => 'عملیات درخواست شده نامعتبر است.'], 400)
         };
     }
@@ -314,6 +318,153 @@ final class Bootstrap
         self::jsonResponse([
             'success' => true,
             'message' => $result['message'],
+            'site' => $siteManager->get($slug)
+        ]);
+    }
+
+    /**
+     * Process Deploy or Update from GitHub repository.
+     */
+    private static function actionDeployGitHub(bool $isUpdate): void
+    {
+        $adminSlug = self::$config['admin_slug'] ?? null;
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $name = Security::sanitizeText((string)($_POST['name'] ?? ''));
+        $url = trim((string)($_POST['github_url'] ?? ''));
+        $branch = trim((string)($_POST['github_branch'] ?? '')) ?: null;
+        $token = trim((string)($_POST['github_token'] ?? '')) ?: null;
+        $fixRoutes = !empty($_POST['fix_routes']);
+
+        // Validate slug
+        $valSlug = Security::validateSlug($slug, $adminSlug);
+        if (!$valSlug['valid']) {
+            self::jsonResponse(['success' => false, 'error' => $valSlug['error']], 422);
+            return;
+        }
+
+        if ($url === '') {
+            self::jsonResponse(['success' => false, 'error' => 'لینک مخزن گیت‌هاب الزامی است.'], 422);
+            return;
+        }
+
+        if ($name === '') {
+            $parsed = GitHubDeployer::parseUrl($url);
+            $name = $parsed ? $parsed['repo'] : $slug;
+        }
+
+        $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
+        $existing = $siteManager->get($slug);
+
+        if (!$isUpdate && $existing !== null) {
+            self::jsonResponse(['success' => false, 'error' => 'سایتی با این شناسه مسیر در حال حاضر ثبت شده است.'], 422);
+            return;
+        }
+
+        if ($isUpdate && $existing === null) {
+            self::jsonResponse(['success' => false, 'error' => 'سایت مورد نظر برای به‌روزرسانی یافت نشد.'], 404);
+            return;
+        }
+
+        $maxUpload = (int)(self::$config['max_upload_bytes'] ?? 104857600);
+        $maxExtract = (int)(self::$config['max_extract_bytes'] ?? 314572800);
+        $maxFiles = (int)(self::$config['max_file_count'] ?? 5000);
+
+        $deployer = new Deployer(self::$publicHtmlPath, self::$dataPath, $maxUpload, $maxExtract, $maxFiles);
+        $tmpPath = self::$dataPath . DIRECTORY_SEPARATOR . 'tmp';
+        $ghDeployer = new GitHubDeployer($tmpPath);
+
+        $result = $ghDeployer->deployFromGitHub($url, $slug, $branch, $token, $isUpdate, $fixRoutes, $deployer);
+
+        if (!$result['success']) {
+            self::jsonResponse(['success' => false, 'error' => $result['error']], 400);
+            return;
+        }
+
+        $stats = $result['stats'] ?? [];
+        $siteData = [
+            'name' => $name,
+            'slug' => $slug,
+            'type' => $stats['type'] ?? 'static',
+            'has_php' => $stats['has_php'] ?? false,
+            'fix_routes' => $fixRoutes,
+            'index_file' => $stats['index_file'] ?? null,
+            'file_count' => $stats['file_count'] ?? 0,
+            'total_size' => $stats['total_size'] ?? 0,
+            'formatted_size' => $stats['formatted_size'] ?? '0 B',
+            'github' => $result['github'] ?? null,
+            'created_at' => $existing['created_at'] ?? date('Y-m-d H:i:s'),
+            'last_deploy_at' => date('Y-m-d H:i:s')
+        ];
+
+        $siteManager->save($siteData);
+        self::logAction(($isUpdate ? 'به‌روزرسانی از گیت‌هاب' : 'دیپلوی از گیت‌هاب') . " سایت '{$slug}' ({$url})");
+
+        self::jsonResponse([
+            'success' => true,
+            'message' => $result['message'],
+            'site' => $siteManager->get($slug)
+        ]);
+    }
+
+    /**
+     * Process 1-Click Sync from GitHub.
+     */
+    private static function actionSyncGitHub(): void
+    {
+        $slug = strtolower(trim((string)($_POST['slug'] ?? '')));
+        $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
+        $existing = $siteManager->get($slug);
+
+        if ($existing === null) {
+            self::jsonResponse(['success' => false, 'error' => 'سایت مورد نظر یافت نشد.'], 404);
+            return;
+        }
+
+        $gh = $existing['github'] ?? null;
+        if (empty($gh['url'])) {
+            self::jsonResponse(['success' => false, 'error' => 'این پروژه از گیت‌هاب کلون نشده است و اطلاعات مخزن ندارد.'], 422);
+            return;
+        }
+
+        $url = $gh['url'];
+        $branch = $gh['branch'] ?? null;
+        $token = $gh['token'] ?? null;
+        $fixRoutes = !empty($existing['fix_routes']);
+        $name = $existing['name'] ?? $slug;
+
+        $maxUpload = (int)(self::$config['max_upload_bytes'] ?? 104857600);
+        $maxExtract = (int)(self::$config['max_extract_bytes'] ?? 314572800);
+        $maxFiles = (int)(self::$config['max_file_count'] ?? 5000);
+
+        $deployer = new Deployer(self::$publicHtmlPath, self::$dataPath, $maxUpload, $maxExtract, $maxFiles);
+        $tmpPath = self::$dataPath . DIRECTORY_SEPARATOR . 'tmp';
+        $ghDeployer = new GitHubDeployer($tmpPath);
+
+        $result = $ghDeployer->deployFromGitHub($url, $slug, $branch, $token, true, $fixRoutes, $deployer);
+
+        if (!$result['success']) {
+            self::jsonResponse(['success' => false, 'error' => $result['error']], 400);
+            return;
+        }
+
+        $stats = $result['stats'] ?? [];
+        $siteData = array_merge($existing, [
+            'type' => $stats['type'] ?? $existing['type'] ?? 'static',
+            'has_php' => $stats['has_php'] ?? $existing['has_php'] ?? false,
+            'index_file' => $stats['index_file'] ?? null,
+            'file_count' => $stats['file_count'] ?? 0,
+            'total_size' => $stats['total_size'] ?? 0,
+            'formatted_size' => $stats['formatted_size'] ?? '0 B',
+            'github' => $result['github'] ?? $existing['github'],
+            'last_deploy_at' => date('Y-m-d H:i:s')
+        ]);
+
+        $siteManager->save($siteData);
+        self::logAction("همگام‌سازی مستقیم از گیت‌هاب برای '{$slug}' ({$url} [{$branch}])");
+
+        self::jsonResponse([
+            'success' => true,
+            'message' => "پروژه '{$name}' با موفقیت با آخرین تغییرات گیت‌هاب همگام‌سازی شد.",
             'site' => $siteManager->get($slug)
         ]);
     }

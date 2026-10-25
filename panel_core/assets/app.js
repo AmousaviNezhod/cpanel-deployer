@@ -278,12 +278,189 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     /**
-     * Handle Deploy Form Submission
+     * 1-Click Sync from GitHub
+     */
+    document.querySelectorAll('[data-action="sync-github"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const slug = btn.getAttribute('data-slug');
+            const name = btn.getAttribute('data-name');
+            if (!confirm(`آیا مایل به دریافت آخرین نسخه از گیت‌هاب و همگام‌سازی سایت "${name}" هستید؟`)) {
+                return;
+            }
+
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '🔄 در حال دریافت...';
+
+            const formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('slug', slug);
+
+            fetch('./?action=sync_github', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    btn.innerHTML = '✅ همگام شد!';
+                    showToast(data.message || 'سایت با موفقیت با گیت‌هاب همگام‌سازی شد.', 'success', 2500);
+                    setTimeout(() => window.location.reload(), 1200);
+                } else {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                    showToast(data.error || 'خطا در همگام‌سازی با گیت‌هاب.', 'error');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                showToast('خطای شبکه در همگام‌سازی با گیت‌هاب.', 'error');
+            });
+        });
+    });
+
+    /**
+     * GitHub vs ZIP Mode Switcher in Deploy Modal
+     */
+    const deployTabBtns = document.querySelectorAll('.deploy-tab-btn');
+    const deployZipSection = document.getElementById('deployZipSection');
+    const deployGithubSection = document.getElementById('deployGithubSection');
+    const deployModeInput = document.getElementById('deployModeInput');
+    const deployZipInput = document.getElementById('deployZipInput');
+    const deployGhUrlInput = document.getElementById('deployGhUrlInput');
+    const deploySubmitBtn = document.getElementById('deploySubmitBtn');
+    const siteNameInput = document.getElementById('siteNameInput');
+
+    deployTabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mode = btn.getAttribute('data-deploy-tab');
+            deployTabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (deployModeInput) deployModeInput.value = mode;
+
+            if (mode === 'github') {
+                if (deployZipSection) deployZipSection.style.display = 'none';
+                if (deployGithubSection) deployGithubSection.style.display = 'block';
+                if (deployZipInput) deployZipInput.removeAttribute('required');
+                if (deployGhUrlInput) deployGhUrlInput.setAttribute('required', 'required');
+                if (deploySubmitBtn) deploySubmitBtn.textContent = '🚀 دریافت و دیپلوی از گیت‌هاب';
+            } else {
+                if (deployZipSection) deployZipSection.style.display = 'block';
+                if (deployGithubSection) deployGithubSection.style.display = 'none';
+                if (deployZipInput) deployZipInput.setAttribute('required', 'required');
+                if (deployGhUrlInput) deployGhUrlInput.removeAttribute('required');
+                if (deploySubmitBtn) deploySubmitBtn.textContent = 'شروع دیپلوی';
+            }
+        });
+    });
+
+    /**
+     * Auto-detect and suggest slug & name from GitHub URL
+     */
+    if (deployGhUrlInput) {
+        deployGhUrlInput.addEventListener('input', () => {
+            const rawUrl = deployGhUrlInput.value.trim();
+            const match = rawUrl.match(/(?:github\.com\/|git@github\.com:)(?:[^\/]+)\/([^\/\.]+)(?:\.git)?/i);
+            if (match && match[1]) {
+                const repo = match[1];
+                if (slugInput && (!slugInput.value || slugInput.dataset.autofilled === '1')) {
+                    const cleanSlug = repo.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/^[-_]+/, '');
+                    slugInput.value = cleanSlug;
+                    slugInput.dataset.autofilled = '1';
+                    if (slugPreview) {
+                        const baseHref = slugPreview.textContent.replace(/\/slug\/$/, '/');
+                        slugPreview.textContent = `${baseHref}${cleanSlug}/`;
+                    }
+                }
+                if (siteNameInput && (!siteNameInput.value || siteNameInput.dataset.autofilled === '1')) {
+                    siteNameInput.value = repo;
+                    siteNameInput.dataset.autofilled = '1';
+                }
+            }
+        });
+    }
+
+    if (slugInput) {
+        slugInput.addEventListener('keydown', () => {
+            slugInput.dataset.autofilled = '0';
+        });
+    }
+    if (siteNameInput) {
+        siteNameInput.addEventListener('keydown', () => {
+            siteNameInput.dataset.autofilled = '0';
+        });
+    }
+
+    /**
+     * Handle Deploy Form Submission (ZIP or GitHub)
      */
     if (deployForm) {
         deployForm.addEventListener('submit', (e) => {
             e.preventDefault();
-            uploadWithProgress(deployForm, './?action=deploy', deployModal, 'در حال بررسی امنیتی و استخراج...');
+            const mode = deployModeInput ? deployModeInput.value : 'zip';
+            if (mode === 'github') {
+                deployFromGitHub();
+            } else {
+                uploadWithProgress(deployForm, './?action=deploy', deployModal, 'در حال بررسی امنیتی و استخراج...');
+            }
+        });
+    }
+
+    function deployFromGitHub() {
+        const submitBtn = deploySubmitBtn || deployForm.querySelector('button[type="submit"]');
+        const progressContainer = deployForm.querySelector('.progress-container');
+        const progressFill = deployForm.querySelector('.progress-bar-fill');
+        const progressStatus = document.getElementById('deployProgressStatus');
+        const progressPercent = document.getElementById('deployProgressPercent');
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'در حال کلون و دریافت از گیت‌هاب...';
+        }
+
+        if (progressContainer) {
+            progressContainer.style.display = 'block';
+            if (progressFill) progressFill.style.width = '40%';
+            if (progressPercent) progressPercent.textContent = '40%';
+            if (progressStatus) progressStatus.textContent = 'در حال دانلود مخزن از گیت‌هاب...';
+        }
+
+        const formData = new FormData(deployForm);
+        if (csrfToken && !formData.has('csrf_token')) {
+            formData.append('csrf_token', csrfToken);
+        }
+
+        fetch('./?action=deploy_github', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                if (progressFill) progressFill.style.width = '100%';
+                if (progressPercent) progressPercent.textContent = '100%';
+                if (progressStatus) progressStatus.textContent = 'دیپلوی با موفقیت کامل شد!';
+                showToast(data.message || 'پروژه با موفقیت از گیت‌هاب مستقر شد.', 'success');
+                setTimeout(() => window.location.reload(), 1000);
+            } else {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '🚀 دریافت و دیپلوی از گیت‌هاب';
+                }
+                if (progressContainer) progressContainer.style.display = 'none';
+                showToast(data.error || 'خطا در دریافت و دیپلوی از گیت‌هاب.', 'error');
+            }
+        })
+        .catch(() => {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '🚀 دریافت و دیپلوی از گیت‌هاب';
+            }
+            if (progressContainer) progressContainer.style.display = 'none';
+            showToast('خطای شبکه در ارتباط با سرور.', 'error');
         });
     }
 

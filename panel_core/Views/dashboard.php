@@ -285,6 +285,14 @@ ob_start();
                                         <div style="font-size: 0.75rem; color: var(--text-muted); direction: ltr; text-align: right;">
                                             /<?= $slug ?>/
                                         </div>
+                                        <?php if (!empty($site['github']['url'])): ?>
+                                            <div style="margin-top: 0.25rem;">
+                                                <a href="<?= htmlspecialchars($site['github']['url'], ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" style="font-size: 0.72rem; color: #818cf8; text-decoration: none; display: inline-flex; align-items: center; gap: 0.25rem;" title="مشاهده مخزن در گیت‌هاب">
+                                                    <span>🐙</span> <?= htmlspecialchars($site['github']['owner'] . '/' . $site['github']['repo'], ENT_QUOTES, 'UTF-8') ?>
+                                                    <span class="badge" style="background: rgba(129, 140, 248, 0.15); color: #818cf8; font-size: 0.65rem; padding: 0 4px;"><?= htmlspecialchars($site['github']['branch'] ?? 'main', ENT_QUOTES, 'UTF-8') ?></span>
+                                                </a>
+                                            </div>
+                                        <?php endif; ?>
                                     </td>
                                     <td>
                                         <div class="url-chip">
@@ -339,10 +347,15 @@ ob_start();
                                         </span>
                                     </td>
                                     <td>
-                                        <div style="display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+                                        <div style="display: flex; align-items: center; justify-content: center; gap: 0.4rem; flex-wrap: wrap;">
                                             <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت در تب جدید">
                                                 مشاهده
                                             </a>
+                                            <?php if (!empty($site['github']['url'])): ?>
+                                                <button class="btn btn-secondary btn-sm" data-action="sync-github" data-slug="<?= $slug ?>" data-name="<?= $name ?>" style="color: #818cf8; border-color: rgba(129, 140, 248, 0.35);" title="دریافت آخرین کامیت از گیت‌هاب و همگام‌سازی سریع">
+                                                    🔄 گیت‌هاب
+                                                </button>
+                                            <?php endif; ?>
                                             <button class="btn btn-secondary btn-sm" data-action="open-files" data-slug="<?= $slug ?>" title="مدیریت فایل‌ها و ویرایش کدهای این پروژه">
                                                 📁 فایل‌ها
                                             </button>
@@ -580,7 +593,37 @@ ob_start();
         <form id="deployForm" enctype="multipart/form-data">
             <div class="modal-body">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                
+                <input type="hidden" id="deployModeInput" name="deploy_mode" value="zip">
+
+                <!-- Source Switcher: ZIP vs GitHub -->
+                <div class="deploy-mode-switcher" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; background: rgba(0,0,0,0.3); padding: 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                    <button type="button" class="btn btn-sm deploy-tab-btn active" data-deploy-tab="zip" style="flex: 1; text-align: center;">
+                        📦 آپلود فایل ZIP
+                    </button>
+                    <button type="button" class="btn btn-sm deploy-tab-btn" data-deploy-tab="github" style="flex: 1; text-align: center;">
+                        🐙 کلون از گیت‌هاب (GitHub)
+                    </button>
+                </div>
+
+                <!-- GitHub Fields (Visible only in github mode) -->
+                <div id="deployGithubSection" style="display: none; background: rgba(99, 102, 241, 0.05); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(99, 102, 241, 0.25); margin-bottom: 1.25rem;">
+                    <div class="form-group">
+                        <label class="form-label" for="deployGhUrlInput"><span class="req">*</span> لینک مخزن گیت‌هاب (Repository URL)</label>
+                        <input type="url" id="deployGhUrlInput" name="github_url" class="form-input" placeholder="https://github.com/username/repository" style="direction: ltr; text-align: left;">
+                        <div class="form-hint">پروژه‌های عمومی به راحتی دانلود می‌شوند. برای مخازن خصوصی، توکن زیر را پر کنید.</div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label" for="deployGhBranchInput">شاخه (Branch)</label>
+                            <input type="text" id="deployGhBranchInput" name="github_branch" class="form-input" placeholder="main (پیش‌فرض)" style="direction: ltr; text-align: left;">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label" for="deployGhTokenInput">توکن شخصی (PAT)</label>
+                            <input type="password" id="deployGhTokenInput" name="github_token" class="form-input" placeholder="ghp_... (اختیاری)" style="direction: ltr; text-align: left;">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label class="form-label" for="siteNameInput">نام دلخواه سایت</label>
                     <input type="text" id="siteNameInput" name="name" class="form-input" placeholder="مثال: فروشگاه کفش">
@@ -594,10 +637,11 @@ ob_start();
                     </div>
                 </div>
 
-                <div class="form-group">
+                <!-- ZIP Upload Section -->
+                <div id="deployZipSection" class="form-group">
                     <label class="form-label"><span class="req">*</span> فایل ZIP سایت</label>
                     <div id="deployDropzone" class="dropzone">
-                        <input type="file" id="deployZipInput" name="zip_file" accept=".zip,application/zip" required>
+                        <input type="file" id="deployZipInput" name="zip_file" accept=".zip,application/zip">
                         <div class="dropzone-icon">📦</div>
                         <div class="dropzone-text">فایل ZIP سایت را اینجا رها کنید یا کلیک کنید</div>
                         <div class="dropzone-sub">پوشه‌های اصلی اضافی داخل ZIP به‌طور خودکار حذف می‌شوند (حداکثر <?= $maxUpload ?>)</div>
@@ -622,14 +666,14 @@ ob_start();
                         <div class="progress-bar-fill"></div>
                     </div>
                     <div class="progress-text">
-                        <span class="progress-status">در حال ارسال فایل...</span>
-                        <span class="progress-percent">0%</span>
+                        <span class="progress-status" id="deployProgressStatus">در حال آماده‌سازی...</span>
+                        <span class="progress-percent" id="deployProgressPercent">0%</span>
                     </div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
-                <button type="submit" class="btn btn-primary">شروع دیپلوی</button>
+                <button type="submit" id="deploySubmitBtn" class="btn btn-primary">شروع دیپلوی</button>
             </div>
         </form>
     </div>
