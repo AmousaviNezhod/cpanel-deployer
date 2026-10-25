@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteModal = document.getElementById('deleteModal');
     const sqliteModal = document.getElementById('sqliteModal');
     const mysqlModal = document.getElementById('mysqlModal');
+    const quotaModal = document.getElementById('quotaModal');
 
     // Forms
     const deployForm = document.getElementById('deployForm');
@@ -19,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteForm = document.getElementById('deleteForm');
     const sqliteForm = document.getElementById('sqliteForm');
     const mysqlForm = document.getElementById('mysqlForm');
+    const quotaForm = document.getElementById('quotaForm');
 
     // Database Studio elements
     let activeDbId = null;
@@ -99,6 +101,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const openNewMysqlBtn = document.getElementById('openNewMysqlModal');
     if (openNewMysqlBtn) {
         openNewMysqlBtn.addEventListener('click', () => openModal(mysqlModal));
+    }
+
+    const openQuotaEditBtn = document.getElementById('openQuotaEditBtn');
+    if (openQuotaEditBtn) {
+        openQuotaEditBtn.addEventListener('click', () => openModal(quotaModal));
     }
 
     document.querySelectorAll('[data-close-modal]').forEach(btn => {
@@ -564,6 +571,44 @@ document.addEventListener('DOMContentLoaded', () => {
             .catch(() => {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'تست و ذخیره اتصال';
+                showToast('خطای شبکه.', 'error');
+            });
+        });
+    }
+
+    /**
+     * Set Custom Quota Submission
+     */
+    if (quotaForm) {
+        quotaForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const submitBtn = quotaForm.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'در حال ذخیره...';
+
+            const formData = new FormData(quotaForm);
+            formData.append('csrf_token', csrfToken);
+
+            fetch('./?action=update_quota', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(res => res.json())
+            .then(data => {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'ذخیره سهمیه';
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeModal(quotaModal);
+                    setTimeout(() => window.location.reload(), 800);
+                } else {
+                    showToast(data.error || 'خطا در ذخیره سهمیه.', 'error');
+                }
+            })
+            .catch(() => {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'ذخیره سهمیه';
                 showToast('خطای شبکه.', 'error');
             });
         });

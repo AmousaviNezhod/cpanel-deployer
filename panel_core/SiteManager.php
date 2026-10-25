@@ -43,7 +43,7 @@ final class SiteManager
     /**
      * Get overall disk statistics for host and deployed services.
      */
-    public function getDiskStats(): array
+    public function getDiskStats(?int $customQuotaMb = null): array
     {
         $sites = $this->getAll();
         $servicesTotalBytes = 0;
@@ -54,20 +54,53 @@ final class SiteManager
             $totalFiles += (int)($site['file_count'] ?? 0);
         }
 
-        $hostTotal = @disk_total_space($this->publicHtmlPath);
-        $hostFree = @disk_free_space($this->publicHtmlPath);
-        $hostUsed = ($hostTotal !== false && $hostFree !== false) ? max(0, $hostTotal - $hostFree) : 0;
-        $hostUsedPercent = ($hostTotal && $hostTotal > 0) ? round(($hostUsed / $hostTotal) * 100, 1) : 0;
+        // Physical filesystem partition (what statvfs reports)
+        $partTotal = @disk_total_space($this->publicHtmlPath);
+        $partFree = @disk_free_space($this->publicHtmlPath);
+        $partUsed = ($partTotal !== false && $partFree !== false) ? max(0, $partTotal - $partFree) : 0;
+        $partUsedPercent = ($partTotal && $partTotal > 0) ? round(($partUsed / $partTotal) * 100, 1) : 0;
+
+        // Try detecting real cPanel account quota (e.g. 200 MB)
+        $cpanelQuota = $this->detectCpanelQuota();
+
+        $isAccountQuota = false;
+        $quotaSource = 'partition';
+
+        if ($cpanelQuota !== null && $cpanelQuota['total_bytes'] > 0) {
+            $isAccountQuota = true;
+            $quotaSource = 'cpanel_quota';
+            $hostTotal = $cpanelQuota['total_bytes'];
+            // If cPanel reported less than actual services, use max
+            $hostUsed = max($cpanelQuota['used_bytes'], $servicesTotalBytes);
+            $hostFree = max(0, $hostTotal - $hostUsed);
+            $hostUsedPercent = round(($hostUsed / $hostTotal) * 100, 1);
+        } elseif ($customQuotaMb !== null && $customQuotaMb > 0) {
+            $isAccountQuota = true;
+            $quotaSource = 'custom_config';
+            $hostTotal = $customQuotaMb * 1024 * 1024;
+            $hostUsed = $servicesTotalBytes;
+            $hostFree = max(0, $hostTotal - $hostUsed);
+            $hostUsedPercent = round(($hostUsed / $hostTotal) * 100, 1);
+        } else {
+            $hostTotal = (int)($partTotal ?: 0);
+            $hostUsed = (int)$partUsed;
+            $hostFree = (int)($partFree ?: 0);
+            $hostUsedPercent = $partUsedPercent;
+        }
 
         return [
             'host' => [
-                'total_bytes' => (int)($hostTotal ?: 0),
-                'free_bytes' => (int)($hostFree ?: 0),
-                'used_bytes' => (int)$hostUsed,
-                'total_formatted' => $hostTotal ? self::formatBytes((int)$hostTotal) : 'نامشخص',
-                'free_formatted' => $hostFree ? self::formatBytes((int)$hostFree) : 'نامشخص',
-                'used_formatted' => $hostTotal ? self::formatBytes((int)$hostUsed) : 'نامشخص',
-                'used_percent' => $hostUsedPercent
+                'is_account_quota' => $isAccountQuota,
+                'quota_source' => $quotaSource,
+                'total_bytes' => $hostTotal,
+                'free_bytes' => $hostFree,
+                'used_bytes' => $hostUsed,
+                'total_formatted' => self::formatBytes($hostTotal),
+                'free_formatted' => self::formatBytes($hostFree),
+                'used_formatted' => self::formatBytes($hostUsed),
+                'used_percent' => $hostUsedPercent,
+                'partition_total_formatted' => $partTotal ? self::formatBytes((int)$partTotal) : 'نامشخص',
+                'partition_free_formatted' => $partFree ? self::formatBytes((int)$partFree) : 'نامشخص'
             ],
             'services' => [
                 'total_bytes' => $servicesTotalBytes,
@@ -77,6 +110,45 @@ final class SiteManager
                 'sites' => array_values($sites)
             ]
         ];
+    }
+
+    /**
+     * Detect real cPanel user account quota from ~/.cpanel/datastore/
+     */
+    private function detectCpanelQuota(): ?array
+    {
+        $userHome = dirname($this->publicHtmlPath);
+        $datastoreDir = $userHome . DIRECTORY_SEPARATOR . '.cpanel' . DIRECTORY_SEPARATOR . 'datastore';
+
+        if (!is_dir($datastoreDir)) {
+            return null;
+        }
+
+        $files = @scandir($datastoreDir) ?: [];
+        foreach ($files as $file) {
+            if (str_starts_with($file, '_Cpanel::Quota.pm__')) {
+                $fullPath = $datastoreDir . DIRECTORY_SEPARATOR . $file;
+                $content = (string)@file_get_contents($fullPath);
+                if ($content === '') {
+                    continue;
+                }
+
+                $json = json_decode($content, true);
+                if (isset($json['data']) && is_array($json['data']) && count($json['data']) >= 2) {
+                    $used = (int)($json['data'][0] ?? 0);
+                    $total = (int)($json['data'][1] ?? 0);
+
+                    if ($total > 0) {
+                        return [
+                            'used_bytes' => $used,
+                            'total_bytes' => $total
+                        ];
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

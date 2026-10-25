@@ -157,6 +157,7 @@ final class Bootstrap
             'db_save_mysql' => self::actionDbSaveMysql(),
             'db_delete_mysql' => self::actionDbDeleteMysql(),
             'db_query' => self::actionDbQuery(),
+            'update_quota' => self::actionUpdateQuota(),
             default => self::jsonResponse(['success' => false, 'error' => 'عملیات درخواست شده نامعتبر است.'], 400)
         };
     }
@@ -357,7 +358,8 @@ final class Bootstrap
     private static function actionDiskStats(): void
     {
         $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
-        self::jsonResponse(['success' => true, 'stats' => $siteManager->getDiskStats()]);
+        $customQuotaMb = isset(self::$config['account_quota_mb']) ? (int)self::$config['account_quota_mb'] : 200;
+        self::jsonResponse(['success' => true, 'stats' => $siteManager->getDiskStats($customQuotaMb)]);
     }
 
     /**
@@ -462,6 +464,25 @@ final class Bootstrap
     }
 
     /**
+     * Update configured host account quota in MB.
+     */
+    private static function actionUpdateQuota(): void
+    {
+        $mb = (int)($_POST['quota_mb'] ?? 0);
+        if ($mb <= 0) {
+            self::jsonResponse(['success' => false, 'error' => 'حجم سهمیه باید مقداری مثبت بر حسب مگابایت باشد.'], 422);
+            return;
+        }
+
+        self::$config['account_quota_mb'] = $mb;
+        $configFile = self::$dataPath . DIRECTORY_SEPARATOR . 'config.json';
+        file_put_contents($configFile, json_encode(self::$config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
+
+        self::logAction("به‌روزرسانی سهمیه هاست به {$mb} مگابایت");
+        self::jsonResponse(['success' => true, 'message' => "سهمیه هاست با موفقیت به {$mb} مگابایت تنظیم شد."]);
+    }
+
+    /**
      * Render Login View.
      */
     private static function renderLoginView(?string $error = null): void
@@ -476,7 +497,8 @@ final class Bootstrap
     private static function renderDashboardView(): void
     {
         $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
-        $diskStats = $siteManager->getDiskStats();
+        $customQuotaMb = isset(self::$config['account_quota_mb']) ? (int)self::$config['account_quota_mb'] : 200;
+        $diskStats = $siteManager->getDiskStats($customQuotaMb);
         $sites = $diskStats['services']['sites'];
 
         $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);

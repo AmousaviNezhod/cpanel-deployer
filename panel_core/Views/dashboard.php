@@ -53,20 +53,27 @@ ob_start();
         <!-- 1. Host Disk Space -->
         <div class="bento-card">
             <div class="bento-header">
-                <span class="bento-title">حجم کل هاست (cPanel Quota)</span>
+                <span class="bento-title">سهمیه اکانت هاست (cPanel Quota)</span>
                 <span class="bento-icon">💽</span>
             </div>
             <div class="bento-value">
                 <?= htmlspecialchars($hostStats['used_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
             </div>
             <div class="bento-sub">
-                <span>از کل <?= htmlspecialchars($hostStats['total_formatted'] ?? 'نامشخص', ENT_QUOTES, 'UTF-8') ?></span>
+                <span>از سقف سهمیه <?= htmlspecialchars($hostStats['total_formatted'] ?? '200 MB', ENT_QUOTES, 'UTF-8') ?></span>
                 <span>•</span>
                 <span style="color: var(--success);"><?= htmlspecialchars($hostStats['free_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?> آزاد</span>
+                <span>(<?= $hostStats['used_percent'] ?? 0 ?>%)</span>
             </div>
             <div class="bento-progress-bg">
-                <div class="bento-progress-fill" style="width: <?= min(100, (float)($hostStats['used_percent'] ?? 0)) ?>%; background: <?= ((float)($hostStats['used_percent'] ?? 0) > 85) ? 'var(--danger)' : 'var(--accent)' ?>;"></div>
+                <div class="bento-progress-fill" style="width: <?= min(100, max(2, (float)($hostStats['used_percent'] ?? 0))) ?>%; background: <?= ((float)($hostStats['used_percent'] ?? 0) > 85) ? 'var(--danger)' : 'var(--accent)' ?>;"></div>
             </div>
+            <?php if (!empty($hostStats['partition_total_formatted']) && $hostStats['partition_total_formatted'] !== $hostStats['total_formatted']): ?>
+                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                    <span>پارتیشن کل سرور فیزیکی: <?= htmlspecialchars($hostStats['partition_total_formatted'], ENT_QUOTES, 'UTF-8') ?></span>
+                    <button type="button" class="copy-btn" id="openQuotaEditBtn" title="تنظیم دستی سقف سهمیه">⚙ تنظیم سهمیه</button>
+                </div>
+            <?php endif; ?>
         </div>
 
         <!-- 2. Services Storage Footprint -->
@@ -621,6 +628,29 @@ ob_start();
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
                 <button type="submit" class="btn btn-primary">تست و ذخیره اتصال</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Set Custom Quota -->
+<div id="quotaModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">تنظیم سقف سهمیه هاست (Account Quota)</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="quotaForm">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="quotaMbInput"><span class="req">*</span> سقف سهمیه اکانت (مگابایت)</label>
+                    <input type="number" id="quotaMbInput" name="quota_mb" class="form-input" value="200" min="10" max="1000000" required style="direction: ltr;">
+                    <div class="form-hint">حجم کل سهمیه خریداری‌شده هاست cPanel خود را به مگابایت وارد نمایید (مثال: 200).</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">ذخیره سهمیه</button>
             </div>
         </form>
     </div>
