@@ -426,11 +426,12 @@ final class Deployer
     }
 
     /**
-     * Adapt root-relative routes, inject <base href>, and configure RewriteBase for subpaths.
+     * Adapt root-relative routes, inject per-directory <base href>, and configure RewriteBase for subpaths.
      */
     private function adaptSubpathRoutes(string $dir, string $slug): void
     {
         $escapedSlug = preg_quote($slug, '/');
+        $hasHtaccess = false;
 
         try {
             $iterator = new \RecursiveIteratorIterator(
@@ -456,16 +457,23 @@ final class Deployer
 
                     $changed = false;
 
-                    // Inject or update <base href="/$slug/">
+                    // Calculate accurate base href relative to file directory depth
+                    $relPath = substr($path, strlen($dir) + 1);
+                    $relDir = dirname($relPath);
+                    $fileBase = ($relDir === '.' || $relDir === '')
+                        ? "/{$slug}/"
+                        : "/{$slug}/" . trim(str_replace('\\', '/', $relDir), '/') . "/";
+
+                    // Inject or update <base href="...">
                     if (preg_match('/<base\s[^>]*href=[\'"][^\'"]*[\'"][^>]*>/i', $content)) {
-                        $content = preg_replace('/<base\s[^>]*href=[\'"][^\'"]*[\'"][^>]*>/i', '<base href="/' . $slug . '/">', $content);
+                        $content = preg_replace('/<base\s[^>]*href=[\'"][^\'"]*[\'"][^>]*>/i', '<base href="' . $fileBase . '">', $content);
                         $changed = true;
                     } elseif (preg_match('/<head(\s[^>]*)?>/i', $content)) {
-                        $content = preg_replace('/<head(\s[^>]*)?>/i', "$0\n    <base href=\"/{$slug}/\">", $content, 1);
+                        $content = preg_replace('/<head(\s[^>]*)?>/i', "$0\n    <base href=\"{$fileBase}\">", $content, 1);
                         $changed = true;
                     }
 
-                    // Fix root-absolute paths in href, src, action
+                    // Fix root-absolute paths in href, src, action (starting with /)
                     $pattern = '/\b(href|src|action)=([\'"])\/(?!\/|' . $escapedSlug . '\/)([^\'"]*)\2/i';
                     if (preg_match($pattern, $content)) {
                         $content = preg_replace($pattern, '$1=$2/' . $slug . '/$3$2', $content);
@@ -492,21 +500,107 @@ final class Deployer
                 }
 
                 // 3. Process .htaccess
-                if ($filename === '.htaccess') {
+                if ($filename === '.htaccess' && dirname($path) === $dir) {
+                    $hasHtaccess = true;
                     $content = @file_get_contents($path);
                     if ($content !== false && $content !== '') {
                         if (preg_match('/RewriteBase\s+[^\r\n]+/i', $content)) {
                             $content = preg_replace('/RewriteBase\s+[^\r\n]+/i', 'RewriteBase /' . $slug . '/', $content);
-                            @file_put_contents($path, $content);
                         } elseif (preg_match('/RewriteEngine\s+On/i', $content)) {
                             $content = preg_replace('/RewriteEngine\s+On/i', "RewriteEngine On\n    RewriteBase /{$slug}/", $content, 1);
-                            @file_put_contents($path, $content);
+                        }
+                        @file_put_contents($path, $content);
+                    }
+                }
+            }
+
+            // If no root .htaccess exists, create one with RewriteBase and DirectorySlash protection
+            if (!$hasHtaccess) {
+                $defaultHtaccess = "<IfModule mod_rewrite.c>\n"
+                    . "    RewriteEngine On\n"
+                    . "    RewriteBase /{$slug}/\n"
+                    . "    # Redirect directory requests without trailing slash\n"
+                    . "    RewriteCond %{REQUEST_FILENAME} -d\n"
+                    . "    RewriteCond %{REQUEST_URI} !(.*)/$\n"
+                    . "    RewriteRule ^(.*)$ $1/ [L,R=301]\n"
+                    . "</IfModule>\n";
+                @file_put_contents($dir . DIRECTORY_SEPARATOR . '.htaccess', $defaultHtaccess);
+            }
+
+            // 4. Resolve missing HTML file aliases and case mismatches
+            $this->createMissingHtmlAliases($dir);
+
+        } catch (\Throwable $e) {
+            // Silently ignore traversal issues
+        }
+    }
+
+    /**
+     * Scan directory for links to missing HTML files and create fallback aliases (e.g. about.html -> aboutUs.html).
+     */
+    private function createMissingHtmlAliases(string $dir): void
+    {
+        try {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::SELF_FIRST
+            );
+
+            foreach ($iterator as $item) {
+                if (!$item->isFile()) {
+                    continue;
+                }
+                $ext = strtolower($item->getExtension());
+                if (!in_array($ext, ['html', 'htm', 'php'], true)) {
+                    continue;
+                }
+
+                $content = @file_get_contents($item->getPathname());
+                if (!$content) {
+                    continue;
+                }
+
+                $fileDir = $item->getPath();
+
+                // Find relative links like href="about.html" or href="houses.html"
+                if (preg_match_all('/\bhref=[\'"]([a-zA-Z0-9_\-]+\.html?)[\'"]/i', $content, $m)) {
+                    $dirFiles = scandir($fileDir);
+                    if (!$dirFiles) {
+                        continue;
+                    }
+                    $mapLower = [];
+                    foreach ($dirFiles as $df) {
+                        if ($df === '.' || $df === '..') {
+                            continue;
+                        }
+                        $mapLower[strtolower($df)] = $df;
+                    }
+
+                    foreach ($m[1] as $target) {
+                        $targetPath = $fileDir . DIRECTORY_SEPARATOR . $target;
+                        if (file_exists($targetPath)) {
+                            continue;
+                        }
+
+                        // Case-insensitive match (e.g. houses.html vs Houses.html)
+                        $tLower = strtolower($target);
+                        if (isset($mapLower[$tLower])) {
+                            @copy($fileDir . DIRECTORY_SEPARATOR . $mapLower[$tLower], $targetPath);
+                            continue;
+                        }
+
+                        // Us-variant match (e.g. about.html vs aboutUs.html, contact.html vs contactUs.html)
+                        $baseName = pathinfo($target, PATHINFO_FILENAME);
+                        $tExt = pathinfo($target, PATHINFO_EXTENSION);
+                        $usVariant = strtolower($baseName . 'us.' . $tExt);
+                        if (isset($mapLower[$usVariant])) {
+                            @copy($fileDir . DIRECTORY_SEPARATOR . $mapLower[$usVariant], $targetPath);
+                            continue;
                         }
                     }
                 }
             }
         } catch (\Throwable $e) {
-            // Silently ignore traversal issues
         }
     }
 }

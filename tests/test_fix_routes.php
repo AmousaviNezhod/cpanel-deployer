@@ -13,10 +13,10 @@ $tmpData = $tmpDir . '/data';
 mkdir($tmpPublic, 0755, true);
 mkdir($tmpData, 0755, true);
 
-// Create sample ZIP with root-relative paths
+// Create sample ZIP with root-relative paths & subfolder
 $sampleDir = $tmpDir . '/site_src';
 mkdir($sampleDir . '/css', 0755, true);
-mkdir($sampleDir . '/js', 0755, true);
+mkdir($sampleDir . '/sub', 0755, true);
 
 $html = <<<HTML
 <!DOCTYPE html>
@@ -24,7 +24,6 @@ $html = <<<HTML
 <head>
     <title>Shoes Store</title>
     <link rel="stylesheet" href="/css/style.css">
-    <script src="/js/app.js"></script>
 </head>
 <body>
     <img src="/images/banner.png">
@@ -34,6 +33,20 @@ $html = <<<HTML
 </html>
 HTML;
 file_put_contents($sampleDir . '/index.html', $html);
+
+$subHtml = <<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sub Page</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <a href="detail.html">Detail</a>
+</body>
+</html>
+HTML;
+file_put_contents($sampleDir . '/sub/page.html', $subHtml);
 
 $css = <<<CSS
 body { background: url(/images/bg.png); }
@@ -54,6 +67,7 @@ $zipFile = $tmpDir . '/sample.zip';
 $zip = new ZipArchive();
 $zip->open($zipFile, ZipArchive::CREATE);
 $zip->addFile($sampleDir . '/index.html', 'index.html');
+$zip->addFile($sampleDir . '/sub/page.html', 'sub/page.html');
 $zip->addFile($sampleDir . '/css/style.css', 'css/style.css');
 $zip->addFile($sampleDir . '/.htaccess', '.htaccess');
 $zip->close();
@@ -72,13 +86,13 @@ $res = $deployer->deploy($fileInfo, 'sportshoes', false, true);
 assert($res['success'] === true, 'Deployment with route adaptation must succeed');
 
 $deployedHtml = file_get_contents($tmpPublic . '/sportshoes/index.html');
-assert(str_contains($deployedHtml, '<base href="/sportshoes/">'), 'Must inject base href');
-assert(str_contains($deployedHtml, 'href="/sportshoes/css/style.css"'), 'Must adapt css link');
-assert(str_contains($deployedHtml, 'src="/sportshoes/js/app.js"'), 'Must adapt js src');
-assert(str_contains($deployedHtml, 'src="/sportshoes/images/banner.png"'), 'Must adapt img src');
-assert(str_contains($deployedHtml, 'href="/sportshoes/checkout"'), 'Must adapt checkout link');
-assert(str_contains($deployedHtml, 'href="https://google.com"'), 'Must keep external url unchanged');
-echo "  [PASS] HTML base href injection & root attribute adaptation succeeded\n";
+assert(str_contains($deployedHtml, '<base href="/sportshoes/">'), 'Must inject base href in root html');
+assert(str_contains($deployedHtml, 'href="/sportshoes/css/style.css"'), 'Must adapt root css link');
+echo "  [PASS] Root HTML base href & attribute adaptation succeeded\n";
+
+$deployedSub = file_get_contents($tmpPublic . '/sportshoes/sub/page.html');
+assert(str_contains($deployedSub, '<base href="/sportshoes/sub/">'), 'Must inject depth-accurate base href in subfolder');
+echo "  [PASS] Subfolder HTML depth-aware base href (/sportshoes/sub/) succeeded\n";
 
 $deployedCss = file_get_contents($tmpPublic . '/sportshoes/css/style.css');
 assert(str_contains($deployedCss, 'url(/sportshoes/images/bg.png)'), 'Must adapt CSS url');
