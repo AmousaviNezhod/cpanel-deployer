@@ -15,7 +15,7 @@ final class SiteManager
     }
 
     /**
-     * Get all registered sites with updated filesystem stats.
+     * Get all registered sites with updated filesystem stats and size percentages.
      *
      * @return array<string, array<string, mixed>>
      */
@@ -23,12 +23,60 @@ final class SiteManager
     {
         $sites = $this->readSitesFile();
         $enriched = [];
+        $totalBytes = 0;
 
         foreach ($sites as $slug => $site) {
-            $enriched[$slug] = $this->refreshStats($site);
+            $refreshed = $this->refreshStats($site);
+            $enriched[$slug] = $refreshed;
+            $totalBytes += (int)($refreshed['total_size'] ?? 0);
         }
 
+        // Calculate proportional percentage for each site
+        foreach ($enriched as $slug => &$item) {
+            $item['size_percent'] = ($totalBytes > 0) ? round(((int)$item['total_size'] / $totalBytes) * 100, 1) : 0;
+        }
+        unset($item);
+
         return $enriched;
+    }
+
+    /**
+     * Get overall disk statistics for host and deployed services.
+     */
+    public function getDiskStats(): array
+    {
+        $sites = $this->getAll();
+        $servicesTotalBytes = 0;
+        $totalFiles = 0;
+
+        foreach ($sites as $site) {
+            $servicesTotalBytes += (int)($site['total_size'] ?? 0);
+            $totalFiles += (int)($site['file_count'] ?? 0);
+        }
+
+        $hostTotal = @disk_total_space($this->publicHtmlPath);
+        $hostFree = @disk_free_space($this->publicHtmlPath);
+        $hostUsed = ($hostTotal !== false && $hostFree !== false) ? max(0, $hostTotal - $hostFree) : 0;
+        $hostUsedPercent = ($hostTotal && $hostTotal > 0) ? round(($hostUsed / $hostTotal) * 100, 1) : 0;
+
+        return [
+            'host' => [
+                'total_bytes' => (int)($hostTotal ?: 0),
+                'free_bytes' => (int)($hostFree ?: 0),
+                'used_bytes' => (int)$hostUsed,
+                'total_formatted' => $hostTotal ? self::formatBytes((int)$hostTotal) : 'نامشخص',
+                'free_formatted' => $hostFree ? self::formatBytes((int)$hostFree) : 'نامشخص',
+                'used_formatted' => $hostTotal ? self::formatBytes((int)$hostUsed) : 'نامشخص',
+                'used_percent' => $hostUsedPercent
+            ],
+            'services' => [
+                'total_bytes' => $servicesTotalBytes,
+                'total_formatted' => self::formatBytes($servicesTotalBytes),
+                'total_files' => $totalFiles,
+                'count' => count($sites),
+                'sites' => array_values($sites)
+            ]
+        ];
     }
 
     /**

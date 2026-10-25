@@ -7,6 +7,7 @@ require_once __DIR__ . '/Security.php';
 require_once __DIR__ . '/Auth.php';
 require_once __DIR__ . '/SiteManager.php';
 require_once __DIR__ . '/Deployer.php';
+require_once __DIR__ . '/DatabaseManager.php';
 
 final class Bootstrap
 {
@@ -151,6 +152,11 @@ final class Bootstrap
             'deploy' => self::actionDeploy(false),
             'update' => self::actionDeploy(true),
             'delete' => self::actionDelete(),
+            'db_create_sqlite' => self::actionDbCreateSqlite(),
+            'db_delete_sqlite' => self::actionDbDeleteSqlite(),
+            'db_save_mysql' => self::actionDbSaveMysql(),
+            'db_delete_mysql' => self::actionDbDeleteMysql(),
+            'db_query' => self::actionDbQuery(),
             default => self::jsonResponse(['success' => false, 'error' => 'عملیات درخواست شده نامعتبر است.'], 400)
         };
     }
@@ -167,6 +173,9 @@ final class Bootstrap
 
         match ($action) {
             'sites' => self::actionListSites(),
+            'disk_stats' => self::actionDiskStats(),
+            'db_list' => self::actionDbList(),
+            'db_tables' => self::actionDbTables(),
             'logout' => self::actionLogout(),
             default => self::renderDashboardView()
         };
@@ -343,6 +352,116 @@ final class Bootstrap
     }
 
     /**
+     * Get live disk breakdown and storage statistics.
+     */
+    private static function actionDiskStats(): void
+    {
+        $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
+        self::jsonResponse(['success' => true, 'stats' => $siteManager->getDiskStats()]);
+    }
+
+    /**
+     * List all databases (SQLite & MySQL).
+     */
+    private static function actionDbList(): void
+    {
+        $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);
+        self::jsonResponse(['success' => true, 'databases' => $dbManager->listAll()]);
+    }
+
+    /**
+     * List tables for a selected database.
+     */
+    private static function actionDbTables(): void
+    {
+        $dbId = (string)($_GET['id'] ?? '');
+        if ($dbId === '') {
+            self::jsonResponse(['success' => false, 'error' => 'شناسه دیتابیس ارسال نشده است.'], 422);
+            return;
+        }
+
+        $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);
+        $res = $dbManager->getTables($dbId);
+        self::jsonResponse($res, $res['success'] ? 200 : 400);
+    }
+
+    /**
+     * Create SQLite database.
+     */
+    private static function actionDbCreateSqlite(): void
+    {
+        $name = (string)($_POST['name'] ?? '');
+        $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);
+        $res = $dbManager->createSqliteDb($name);
+        if ($res['success']) {
+            self::logAction("ایجاد دیتابیس SQLite '{$name}'");
+        }
+        self::jsonResponse($res, $res['success'] ? 200 : 400);
+    }
+
+    /**
+     * Delete SQLite database.
+     */
+    private static function actionDbDeleteSqlite(): void
+    {
+        $id = (string)($_POST['id'] ?? '');
+        $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);
+        $res = $dbManager->deleteSqliteDb($id);
+        if ($res['success']) {
+            self::logAction("حذف دیتابیس SQLite '{$id}'");
+        }
+        self::jsonResponse($res, $res['success'] ? 200 : 400);
+    }
+
+    /**
+     * Save / Test MySQL connection profile.
+     */
+    private static function actionDbSaveMysql(): void
+    {
+        $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);
+        $res = $dbManager->saveMysqlConnection($_POST);
+        if ($res['success']) {
+            self::logAction("اتصال و ذخیره دیتابیس MySQL '{$_POST['database']}'");
+        }
+        self::jsonResponse($res, $res['success'] ? 200 : 400);
+    }
+
+    /**
+     * Delete MySQL connection profile.
+     */
+    private static function actionDbDeleteMysql(): void
+    {
+        $id = (string)($_POST['id'] ?? '');
+        $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);
+        $res = $dbManager->deleteMysqlConnection($id);
+        if ($res['success']) {
+            self::logAction("حذف پروفایل اتصال MySQL '{$id}'");
+        }
+        self::jsonResponse($res, $res['success'] ? 200 : 400);
+    }
+
+    /**
+     * Execute SQL query.
+     */
+    private static function actionDbQuery(): void
+    {
+        $dbId = (string)($_POST['id'] ?? '');
+        $sql = (string)($_POST['sql'] ?? '');
+
+        if ($dbId === '' || $sql === '') {
+            self::jsonResponse(['success' => false, 'error' => 'شناسه دیتابیس و متن کوئری الزامی است.'], 422);
+            return;
+        }
+
+        $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);
+        $res = $dbManager->executeQuery($dbId, $sql);
+        if ($res['success']) {
+            self::logAction("اجرای کوئری روی '{$dbId}'");
+        }
+        self::jsonResponse($res, $res['success'] ? 200 : 400);
+    }
+
+    /**
      * Render Login View.
      */
     private static function renderLoginView(?string $error = null): void
@@ -357,7 +476,12 @@ final class Bootstrap
     private static function renderDashboardView(): void
     {
         $siteManager = new SiteManager(self::$dataPath, self::$publicHtmlPath);
-        $sites = array_values($siteManager->getAll());
+        $diskStats = $siteManager->getDiskStats();
+        $sites = $diskStats['services']['sites'];
+
+        $dbManager = new DatabaseManager(self::$dataPath, self::$publicHtmlPath);
+        $databases = $dbManager->listAll();
+
         $csrfToken = Auth::getCsrfToken();
         $adminSlug = self::$config['admin_slug'] ?? 'panel';
         $maxUpload = SiteManager::formatBytes((int)(self::$config['max_upload_bytes'] ?? 104857600));

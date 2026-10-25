@@ -5,6 +5,8 @@ declare(strict_types=1);
  * Dashboard View
  *
  * @var array $sites
+ * @var array $diskStats
+ * @var array $databases
  * @var string $csrfToken
  * @var string $adminSlug
  * @var string $maxUpload
@@ -15,6 +17,13 @@ $protocol = $isHttps ? 'https://' : 'http://';
 $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 $baseUrl = $protocol . $host;
 
+$hostStats = $diskStats['host'] ?? [];
+$servicesStats = $diskStats['services'] ?? [];
+$sqliteDbs = $databases['sqlite'] ?? [];
+$mysqlDbs = $databases['mysql'] ?? [];
+
+$palette = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#84cc16'];
+
 ob_start();
 ?>
 <header class="header">
@@ -22,7 +31,7 @@ ob_start();
         <div class="brand-icon">⚡</div>
         <div class="brand-text">
             <h1>cPanel Deployer</h1>
-            <span>مدیریت و دیپلوی مستقیم سایت‌ها</span>
+            <span>سیستم استقرار، مانیتورینگ فضا و مدیریت دیتابیس</span>
         </div>
     </div>
     <div class="header-actions">
@@ -39,137 +48,392 @@ ob_start();
 </header>
 
 <main class="container">
-    <!-- Security and Subpath Guidance Banner -->
-    <div class="notice-box">
-        <strong>نکات امنیتی و ساختار مسیردهی در هاست اشتراکی:</strong>
-        <ul class="notice-list">
-            <li>
-                <strong>سطح دسترسی اجرای PHP:</strong>
-                اسکریپت‌های PHP آپلودشده با دسترسی حساب cPanel شما اجرا می‌شوند و روی هاست اشتراکی ایزولاسیون کرنل/داکر وجود ندارد؛ فقط کدهای مطمئن و بازبینی‌شده را آپلود کنید.
-            </li>
-            <li>
-                <strong>آدرس‌دهی زیرمسیرها (Subpaths):</strong>
-                سایت‌های دیپلوی‌شده در زیرمسیرها (مانند <code>/x/</code>) برای لود صحیح استایل‌ها و اسکریپت‌ها باید از مسیرهای نسبی (<code>./assets/...</code> یا <code>assets/...</code>) یا تگ <code>&lt;base href="/x/"&gt;</code> استفاده کنند. استفاده از آدرس‌های مطلق ریشه مانند <code>/assets/...</code> درخواست را به ریشه هاست می‌فرستد.
-            </li>
-        </ul>
+    <!-- Bento Overview Grid -->
+    <div class="bento-grid">
+        <!-- 1. Host Disk Space -->
+        <div class="bento-card">
+            <div class="bento-header">
+                <span class="bento-title">حجم کل هاست (cPanel Quota)</span>
+                <span class="bento-icon">💽</span>
+            </div>
+            <div class="bento-value">
+                <?= htmlspecialchars($hostStats['used_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
+            </div>
+            <div class="bento-sub">
+                <span>از کل <?= htmlspecialchars($hostStats['total_formatted'] ?? 'نامشخص', ENT_QUOTES, 'UTF-8') ?></span>
+                <span>•</span>
+                <span style="color: var(--success);"><?= htmlspecialchars($hostStats['free_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?> آزاد</span>
+            </div>
+            <div class="bento-progress-bg">
+                <div class="bento-progress-fill" style="width: <?= min(100, (float)($hostStats['used_percent'] ?? 0)) ?>%; background: <?= ((float)($hostStats['used_percent'] ?? 0) > 85) ? 'var(--danger)' : 'var(--accent)' ?>;"></div>
+            </div>
+        </div>
+
+        <!-- 2. Services Storage Footprint -->
+        <div class="bento-card">
+            <div class="bento-header">
+                <span class="bento-title">فضای مصرفی سرویس‌ها</span>
+                <span class="bento-icon">📦</span>
+            </div>
+            <div class="bento-value" style="color: #60a5fa;">
+                <?= htmlspecialchars($servicesStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
+            </div>
+            <div class="bento-sub">
+                <span>شامل <?= (int)($servicesStats['total_files'] ?? 0) ?> فایل</span>
+                <span>•</span>
+                <span><?= count($sites) ?> سرویس مستقر</span>
+            </div>
+            <div class="bento-progress-bg">
+                <div class="bento-progress-fill" style="width: <?= count($sites) > 0 ? '100' : '0' ?>%; background: #60a5fa;"></div>
+            </div>
+        </div>
+
+        <!-- 3. Deployed Sites Status -->
+        <div class="bento-card">
+            <div class="bento-header">
+                <span class="bento-title">وضعیت سرویس‌ها</span>
+                <span class="bento-icon">🚀</span>
+            </div>
+            <div class="bento-value" style="color: var(--success);">
+                <?= count($sites) ?> <span style="font-size: 1rem; color: var(--text-muted); font-weight: normal;">سایت</span>
+            </div>
+            <div class="bento-sub">
+                <?php
+                $phpCount = 0;
+                $staticCount = 0;
+                foreach ($sites as $s) {
+                    if (!empty($s['has_php']) || ($s['type'] ?? '') === 'php') {
+                        $phpCount++;
+                    } else {
+                        $staticCount++;
+                    }
+                }
+                ?>
+                <span class="badge badge-php" style="padding: 1px 6px; font-size: 0.72rem;"><?= $phpCount ?> PHP</span>
+                <span class="badge badge-static" style="padding: 1px 6px; font-size: 0.72rem;"><?= $staticCount ?> استاتیک</span>
+            </div>
+            <div class="bento-progress-bg">
+                <div class="bento-progress-fill" style="width: 100%; background: var(--success);"></div>
+            </div>
+        </div>
+
+        <!-- 4. Databases Studio Overview -->
+        <div class="bento-card" style="cursor: pointer;" onclick="document.querySelector('[data-tab=tab-databases]').click()">
+            <div class="bento-header">
+                <span class="bento-title">پایگاه‌های داده</span>
+                <span class="bento-icon">🗄️</span>
+            </div>
+            <div class="bento-value" style="color: var(--cyan);">
+                <?= count($sqliteDbs) + count($mysqlDbs) ?> <span style="font-size: 1rem; color: var(--text-muted); font-weight: normal;">دیتابیس</span>
+            </div>
+            <div class="bento-sub">
+                <span class="badge badge-sqlite" style="padding: 1px 6px; font-size: 0.72rem;"><?= count($sqliteDbs) ?> SQLite</span>
+                <span class="badge badge-mysql" style="padding: 1px 6px; font-size: 0.72rem;"><?= count($mysqlDbs) ?> MySQL</span>
+            </div>
+            <div class="bento-progress-bg">
+                <div class="bento-progress-fill" style="width: 100%; background: var(--cyan);"></div>
+            </div>
+        </div>
     </div>
 
-    <!-- Toolbar -->
-    <div class="toolbar">
-        <div>
-            <span class="toolbar-title">سایت‌های مستقر</span>
-            <span class="toolbar-count">(<?= count($sites) ?> سایت)</span>
+    <!-- Storage Distribution Visualizer -->
+    <?php if (!empty($sites)): ?>
+        <div class="storage-overview-card">
+            <div class="storage-overview-header">
+                <span class="storage-overview-title">تفکیک مصرف فضای هر سرویس روی هاست</span>
+                <span style="font-size: 0.8rem; color: var(--text-muted);">
+                    مجموع سرویس‌ها: <?= htmlspecialchars($servicesStats['total_formatted'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
+                </span>
+            </div>
+            <div class="storage-bar-wrapper">
+                <?php $colorIdx = 0; ?>
+                <?php foreach ($sites as $site): ?>
+                    <?php
+                    $color = $palette[$colorIdx % count($palette)];
+                    $colorIdx++;
+                    $pct = max(1.5, (float)($site['size_percent'] ?? 0));
+                    ?>
+                    <div class="storage-bar-segment"
+                         style="width: <?= $pct ?>%; background-color: <?= $color ?>;"
+                         title="<?= htmlspecialchars($site['name'] ?? $site['slug'], ENT_QUOTES, 'UTF-8') ?>: <?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?> (<?= $site['size_percent'] ?? 0 ?>%)">
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <div class="storage-legend">
+                <?php $colorIdx = 0; ?>
+                <?php foreach ($sites as $site): ?>
+                    <?php
+                    $color = $palette[$colorIdx % count($palette)];
+                    $colorIdx++;
+                    ?>
+                    <div class="legend-item" title="/<?= htmlspecialchars($site['slug'], ENT_QUOTES, 'UTF-8') ?>/">
+                        <span class="legend-dot" style="background-color: <?= $color ?>;"></span>
+                        <strong><?= htmlspecialchars($site['name'] ?? $site['slug'], ENT_QUOTES, 'UTF-8') ?>:</strong>
+                        <span><?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?> (<?= $site['size_percent'] ?? 0 ?>%)</span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
         </div>
-        <div class="toolbar-actions">
-            <button id="openDeployModal" class="btn btn-primary">
-                <span>+</span> دیپلوی سایت جدید
-            </button>
-        </div>
+    <?php endif; ?>
+
+    <!-- Navigation Tabs -->
+    <div class="nav-tabs">
+        <button class="tab-btn active" data-tab="tab-services">
+            <span>🌐</span> سایت‌ها و سرویس‌ها (<?= count($sites) ?>)
+        </button>
+        <button class="tab-btn" data-tab="tab-databases">
+            <span>🗄️</span> مدیریت دیتابیس (<?= count($sqliteDbs) + count($mysqlDbs) ?>)
+        </button>
     </div>
 
-    <!-- Sites Table or Empty State -->
-    <div class="table-card">
-        <?php if (empty($sites)): ?>
-            <div class="empty-state">
-                <svg class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-                <div class="empty-title">هنوز هیچ سایتی دیپلوی نشده است</div>
-                <div class="empty-desc">
-                    می‌توانید یک فایل ZIP شامل یک سایت استاتیک (HTML/CSS/JS) یا یک سایت بدون دیتابیس PHP را آپلود و مستقر کنید.
-                </div>
-                <button onclick="document.getElementById('openDeployModal').click()" class="btn btn-primary">
-                    دیپلوی اولین سایت
+    <!-- TAB 1: SITES & DEPLOYMENTS -->
+    <div id="tab-services" class="tab-pane active">
+        <!-- Security Notice -->
+        <div class="notice-box">
+            <strong>نکات امنیتی و ساختار مسیردهی در هاست اشتراکی:</strong>
+            <ul class="notice-list">
+                <li>
+                    <strong>ایزولاسیون:</strong> اسکریپت‌های PHP آپلودشده با دسترسی حساب cPanel شما اجرا می‌شوند؛ فقط کدهای معتبر و مطمئن را آپلود کنید.
+                </li>
+                <li>
+                    <strong>مسیردهی دارایی‌ها:</strong> برای لود صحیح استایل‌ها و تصاویر در زیرمسیرها (مانند <code>/slug/</code>)، از آدرس‌های نسبی (<code>./assets/</code>) یا تگ <code>&lt;base href="/slug/"&gt;</code> استفاده نمایید.
+                </li>
+            </ul>
+        </div>
+
+        <!-- Action Toolbar -->
+        <div class="toolbar">
+            <div>
+                <span class="toolbar-title">فهرست سایت‌های مستقر</span>
+                <span class="toolbar-count">(<?= count($sites) ?> سرویس)</span>
+            </div>
+            <div class="toolbar-actions">
+                <button id="openDeployModal" class="btn btn-primary">
+                    <span>+</span> دیپلوی سایت جدید
                 </button>
             </div>
-        <?php else: ?>
-            <div class="table-responsive">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>نام سایت</th>
-                            <th>مسیر دسترسی</th>
-                            <th>نوع</th>
-                            <th>وضعیت فایل‌ها</th>
-                            <th>آخرین دیپلوی</th>
-                            <th style="text-align: center;">عملیات</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($sites as $site): ?>
-                            <?php
-                            $slug = htmlspecialchars($site['slug'], ENT_QUOTES, 'UTF-8');
-                            $name = htmlspecialchars($site['name'], ENT_QUOTES, 'UTF-8');
-                            $siteUrl = rtrim($baseUrl, '/') . '/' . $site['slug'] . '/';
-                            $isPhp = !empty($site['has_php']) || ($site['type'] ?? '') === 'php';
-                            ?>
+        </div>
+
+        <!-- Sites Table or Empty State -->
+        <div class="table-card">
+            <?php if (empty($sites)): ?>
+                <div class="empty-state">
+                    <svg class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    <div class="empty-title">هنوز هیچ سایتی دیپلوی نشده است</div>
+                    <div class="empty-desc">
+                        می‌توانید یک فایل ZIP شامل یک سایت استاتیک (HTML/CSS/JS) یا یک پروژه PHP را آپلود و مستقر کنید.
+                    </div>
+                    <button onclick="document.getElementById('openDeployModal').click()" class="btn btn-primary">
+                        دیپلوی اولین سایت
+                    </button>
+                </div>
+            <?php else: ?>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
                             <tr>
-                                <td>
-                                    <div style="font-weight: 600; color: var(--text-primary);"><?= $name ?></div>
-                                    <div style="font-size: 0.75rem; color: var(--text-muted); direction: ltr; text-align: right;">
-                                        /<?= $slug ?>/
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="url-chip">
-                                        <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">
-                                            /<?= $slug ?>/
-                                        </a>
-                                        <button class="copy-btn" data-copy="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" title="کپی آدرس کامل">
-                                            کپی
-                                        </button>
-                                    </div>
-                                </td>
-                                <td>
-                                    <?php if ($isPhp): ?>
-                                        <span class="badge badge-php">PHP ⚡</span>
-                                    <?php else: ?>
-                                        <span class="badge badge-static">استاتیک</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if (!empty($site['exists'])): ?>
-                                        <?php if (!empty($site['index_file'])): ?>
-                                            <span class="badge badge-success">فعال</span>
-                                        <?php else: ?>
-                                            <span class="badge badge-warning" title="فایل index.html یا index.php یافت نشد">فاقد Index</span>
-                                        <?php endif; ?>
-                                        <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                            <?= (int)($site['file_count'] ?? 0) ?> فایل (<?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>)
-                                        </div>
-                                    <?php else: ?>
-                                        <span class="badge badge-danger">پوشه ناموجود</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <span style="font-size: 0.8rem; color: var(--text-secondary); direction: ltr; display: inline-block;">
-                                        <?= htmlspecialchars($site['last_deploy_at'] ?? $site['created_at'] ?? '-', ENT_QUOTES, 'UTF-8') ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <div style="display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
-                                        <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت در تب جدید">
-                                            مشاهده
-                                        </a>
-                                        <button class="btn btn-secondary btn-sm" data-action="open-update" data-slug="<?= $slug ?>" data-name="<?= $name ?>" title="به‌روزرسانی با ZIP جدید">
-                                            به‌روزرسانی
-                                        </button>
-                                        <button class="btn btn-danger btn-sm" data-action="open-delete" data-slug="<?= $slug ?>" data-name="<?= $name ?>" title="حذف کامل سایت">
-                                            حذف
-                                        </button>
-                                    </div>
-                                </td>
+                                <th>نام و شناسه سایت</th>
+                                <th>آدرس دسترسی</th>
+                                <th>نوع سرویس</th>
+                                <th>حجم و سهم فضا</th>
+                                <th>وضعیت فایل‌ها</th>
+                                <th>آخرین دیپلوی</th>
+                                <th style="text-align: center;">عملیات</th>
                             </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($sites as $site): ?>
+                                <?php
+                                $slug = htmlspecialchars($site['slug'], ENT_QUOTES, 'UTF-8');
+                                $name = htmlspecialchars($site['name'], ENT_QUOTES, 'UTF-8');
+                                $siteUrl = rtrim($baseUrl, '/') . '/' . $site['slug'] . '/';
+                                $isPhp = !empty($site['has_php']) || ($site['type'] ?? '') === 'php';
+                                $pct = (float)($site['size_percent'] ?? 0);
+                                ?>
+                                <tr>
+                                    <td>
+                                        <div style="font-weight: 600; color: var(--text-primary);"><?= $name ?></div>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted); direction: ltr; text-align: right;">
+                                            /<?= $slug ?>/
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="url-chip">
+                                            <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">
+                                                /<?= $slug ?>/
+                                            </a>
+                                            <button class="copy-btn" data-copy="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" title="کپی آدرس کامل">
+                                                کپی
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <?php if ($isPhp): ?>
+                                            <span class="badge badge-php">PHP ⚡</span>
+                                        <?php else: ?>
+                                            <span class="badge badge-static">استاتیک</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <div class="service-size-cell">
+                                            <div class="service-size-text">
+                                                <?= htmlspecialchars($site['formatted_size'] ?? '0 B', ENT_QUOTES, 'UTF-8') ?>
+                                                <span style="font-size: 0.72rem; color: var(--text-muted);">(<?= $pct ?>%)</span>
+                                            </div>
+                                            <div class="service-size-bar-bg" title="<?= $pct ?>% از کل سرویس‌ها">
+                                                <div class="service-size-bar-fill" style="width: <?= min(100, max(4, $pct)) ?>%;"></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($site['exists'])): ?>
+                                            <?php if (!empty($site['index_file'])): ?>
+                                                <span class="badge badge-success">فعال (<?= htmlspecialchars($site['index_file'], ENT_QUOTES, 'UTF-8') ?>)</span>
+                                            <?php else: ?>
+                                                <span class="badge badge-warning" title="فایل index یافت نشد">فاقد Index</span>
+                                            <?php endif; ?>
+                                            <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                                <?= (int)($site['file_count'] ?? 0) ?> فایل
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="badge badge-danger">پوشه ناموجود</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <span style="font-size: 0.8rem; color: var(--text-secondary); direction: ltr; display: inline-block;">
+                                            <?= htmlspecialchars($site['last_deploy_at'] ?? $site['created_at'] ?? '-', ENT_QUOTES, 'UTF-8') ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div style="display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+                                            <a href="<?= htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="مشاهده سایت در تب جدید">
+                                                مشاهده
+                                            </a>
+                                            <button class="btn btn-secondary btn-sm" data-action="open-update" data-slug="<?= $slug ?>" data-name="<?= $name ?>" title="به‌روزرسانی با ZIP جدید">
+                                                به‌روزرسانی
+                                            </button>
+                                            <button class="btn btn-danger btn-sm" data-action="open-delete" data-slug="<?= $slug ?>" data-name="<?= $name ?>" title="حذف کامل سایت">
+                                                حذف
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- TAB 2: DATABASE MANAGER -->
+    <div id="tab-databases" class="tab-pane">
+        <div class="db-studio-grid">
+            <!-- Sidebar: DB List -->
+            <div class="db-sidebar">
+                <div class="db-list-header">
+                    <strong style="font-size: 0.95rem;">پایگاه‌های داده</strong>
+                    <div style="display: flex; gap: 0.35rem;">
+                        <button id="openNewSqliteModal" class="btn btn-secondary btn-sm" title="ساخت دیتابیس SQLite جدید">+ SQLite</button>
+                        <button id="openNewMysqlModal" class="btn btn-secondary btn-sm" title="اتصال دیتابیس MySQL">+ MySQL</button>
+                    </div>
+                </div>
+
+                <div class="db-list" id="dbItemsList">
+                    <!-- SQLite Section -->
+                    <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; margin-top: 0.25rem;">
+                        دیتابیس‌های SQLite
+                    </div>
+                    <?php if (empty($sqliteDbs)): ?>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem 0;">هیچ دیتابیس SQLite یافت نشد.</div>
+                    <?php else: ?>
+                        <?php foreach ($sqliteDbs as $db): ?>
+                            <div class="db-item-card" data-db-id="<?= htmlspecialchars($db['id'], ENT_QUOTES, 'UTF-8') ?>" data-db-type="sqlite" data-db-name="<?= htmlspecialchars($db['name'], ENT_QUOTES, 'UTF-8') ?>">
+                                <div class="db-item-title">
+                                    <span><?= htmlspecialchars($db['name'], ENT_QUOTES, 'UTF-8') ?></span>
+                                    <span class="badge badge-sqlite">SQLite</span>
+                                </div>
+                                <div class="db-item-meta">
+                                    <span>حجم: <?= htmlspecialchars($db['formatted_size'], ENT_QUOTES, 'UTF-8') ?></span>
+                                    <button class="copy-btn" data-delete-db="<?= htmlspecialchars($db['id'], ENT_QUOTES, 'UTF-8') ?>" style="color: var(--danger);" title="حذف دیتابیس">✕</button>
+                                </div>
+                            </div>
                         <?php endforeach; ?>
-                    </tbody>
-                </table>
+                    <?php endif; ?>
+
+                    <!-- MySQL Section -->
+                    <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; margin-top: 0.75rem;">
+                        اتصال‌های MySQL
+                    </div>
+                    <?php if (empty($mysqlDbs)): ?>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem 0;">اتصال MySQL ثبت نشده است.</div>
+                    <?php else: ?>
+                        <?php foreach ($mysqlDbs as $db): ?>
+                            <div class="db-item-card" data-db-id="<?= htmlspecialchars($db['id'], ENT_QUOTES, 'UTF-8') ?>" data-db-type="mysql" data-db-name="<?= htmlspecialchars($db['name'], ENT_QUOTES, 'UTF-8') ?>">
+                                <div class="db-item-title">
+                                    <span><?= htmlspecialchars($db['name'], ENT_QUOTES, 'UTF-8') ?></span>
+                                    <span class="badge badge-mysql">MySQL</span>
+                                </div>
+                                <div class="db-item-meta">
+                                    <span><?= htmlspecialchars($db['database'], ENT_QUOTES, 'UTF-8') ?> (<?= htmlspecialchars($db['host'], ENT_QUOTES, 'UTF-8') ?>)</span>
+                                    <button class="copy-btn" data-delete-mysql="<?= htmlspecialchars($db['id'], ENT_QUOTES, 'UTF-8') ?>" style="color: var(--danger);" title="حذف اتصال">✕</button>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
             </div>
-        <?php endif; ?>
+
+            <!-- Main: Query Console & Tables -->
+            <div class="db-main">
+                <div class="db-active-header">
+                    <div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">دیتابیس انتخاب‌شده:</div>
+                        <h3 id="activeDbTitle" style="font-size: 1.1rem; color: var(--text-primary); margin-top: 0.2rem;">
+                            یک دیتابیس را از ستون کناری انتخاب کنید
+                        </h3>
+                    </div>
+                    <div id="activeDbBadgeContainer"></div>
+                </div>
+
+                <!-- Tables Strip -->
+                <div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.4rem;">جداول پایگاه داده (برای کوئری سریع کلیک کنید):</div>
+                    <div class="db-tables-strip" id="dbTablesStrip">
+                        <span style="font-size: 0.82rem; color: var(--text-muted);">ابتدا دیتابیس را انتخاب نمایید.</span>
+                    </div>
+                </div>
+
+                <!-- SQL Query Studio -->
+                <div class="sql-editor-container">
+                    <div class="sql-editor-actions">
+                        <div class="sql-quick-buttons">
+                            <button type="button" class="sql-quick-btn" data-template="SELECT * FROM {table} LIMIT 25;">SELECT</button>
+                            <button type="button" class="sql-quick-btn" data-template="INSERT INTO {table} VALUES ();">INSERT</button>
+                            <button type="button" class="sql-quick-btn" data-template="CREATE TABLE sample (id INTEGER PRIMARY KEY, title TEXT);">CREATE TABLE</button>
+                        </div>
+                        <button id="runSqlQueryBtn" class="btn btn-primary btn-sm" disabled>
+                            <span>▶</span> اجرای کوئری (Ctrl+Enter)
+                        </button>
+                    </div>
+                    <textarea id="sqlQueryTextarea" class="sql-textarea" placeholder="کوئری SQL خود را اینجا بنویسید... (مانند: SELECT * FROM users;)"></textarea>
+                </div>
+
+                <!-- Results Output -->
+                <div id="sqlResultsContainer">
+                    <div style="padding: 1rem; color: var(--text-muted); font-size: 0.85rem; text-align: center;">
+                        نتیجه اجرای دستور SQL در اینجا نمایش داده خواهد شد.
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </main>
 
 <footer class="footer">
-    cPanel Deployer - استقرار سبک، سریع و امن بدون وابستگی به داکر یا دیتابیس
+    cPanel Deployer - استقرار سبک، مانیتورینگ مصرف حافظه و مدیریت پایگاه‌های داده
 </footer>
 
 <!-- Modal: New Site Deployment -->
@@ -185,12 +449,12 @@ ob_start();
                 
                 <div class="form-group">
                     <label class="form-label" for="siteNameInput">نام دلخواه سایت</label>
-                    <input type="text" id="siteNameInput" name="name" class="form-input" placeholder="مثال: فروشگاه تست">
+                    <input type="text" id="siteNameInput" name="name" class="form-input" placeholder="مثال: فروشگاه کفش">
                 </div>
 
                 <div class="form-group">
                     <label class="form-label" for="siteSlugInput"><span class="req">*</span> شناسه مسیر (Slug)</label>
-                    <input type="text" id="siteSlugInput" name="slug" class="form-input" placeholder="مثال: mysite" required pattern="[a-z0-9][a-z0-9_-]*" style="direction: ltr; text-align: left;">
+                    <input type="text" id="siteSlugInput" name="slug" class="form-input" placeholder="مثال: sportshoes" required pattern="[a-z0-9][a-z0-9_-]*" style="direction: ltr; text-align: left;">
                     <div class="form-hint">
                         پیش‌نمایش آدرس نهایی: <code id="slugUrlPreview" style="color: var(--accent);"><?= rtrim($baseUrl, '/') ?>/slug/</code>
                     </div>
@@ -300,6 +564,68 @@ ob_start();
         </form>
     </div>
 </div>
+
+<!-- Modal: Create SQLite DB -->
+<div id="sqliteModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">ایجاد دیتابیس SQLite جدید</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="sqliteForm">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="sqliteNameInput"><span class="req">*</span> نام دیتابیس</label>
+                    <input type="text" id="sqliteNameInput" name="name" class="form-input" placeholder="مثال: app_database" required pattern="[a-zA-Z0-9_-]+" style="direction: ltr; text-align: left;">
+                    <div class="form-hint">فایل به صورت خودکار با پسوند <code>.sqlite</code> در پوشه حفاظت‌شده <code>panel_data/databases/</code> ذخیره می‌شود.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">ایجاد دیتابیس</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Connect MySQL DB -->
+<div id="mysqlModal" class="modal-overlay">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">اتصال پایگاه داده MySQL / MariaDB</div>
+            <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <form id="mysqlForm">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="mysqlTitleInput">عنوان نمایشی</label>
+                    <input type="text" id="mysqlTitleInput" name="name" class="form-input" placeholder="مثال: دیتابیس اصلی فروشگاه">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="mysqlHostInput"><span class="req">*</span> هاست (Host)</label>
+                    <input type="text" id="mysqlHostInput" name="host" class="form-input" value="localhost" required style="direction: ltr;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="mysqlDbInput"><span class="req">*</span> نام پایگاه داده (Database Name)</label>
+                    <input type="text" id="mysqlDbInput" name="database" class="form-input" placeholder="مثال: amousavi_shop" required style="direction: ltr;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="mysqlUserInput"><span class="req">*</span> نام کاربری (Username)</label>
+                    <input type="text" id="mysqlUserInput" name="username" class="form-input" placeholder="مثال: amousavi_user" required style="direction: ltr;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="mysqlPassInput"><span class="req">*</span> رمز عبور (Password)</label>
+                    <input type="password" id="mysqlPassInput" name="password" class="form-input" required style="direction: ltr;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-close-modal>انصراف</button>
+                <button type="submit" class="btn btn-primary">تست و ذخیره اتصال</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <?php
 $content = ob_get_clean();
 $title = 'داشبورد مدیریت';
